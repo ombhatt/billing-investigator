@@ -1,0 +1,44 @@
+{
+  "name": "billing-investigator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Read-only AI agent that investigates invoice-variance complaints over synthetic billing data",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "deploy": "vite build && wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src/ test/",
+    "test": "vitest run",
+    "test:unit": "vitest run test/unit",
+    "test:integration": "vitest run test/integration",
+    "cf-typegen": "wrangler types",
+    "db:migrate:local": "wrangler d1 migrations apply billing-investigator --local",
+    "db:seed:local": "wrangler d1 execute billing-investigator --local --file=seed/0001_accounts.sql",
+    "db:migrate:remote": "wrangler d1 migrations apply billing-investigator --remote",
+    "db:seed:remote": "wrangler d1 execute billing-investigator --remote --file=seed/0001_accounts.sql"
+  },
+  "dependencies": {
+    "@cloudflare/ai-chat": "^0.9.3",
+    "agents": "^0.22.0",
+    "ai": "^6.0.197",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "workers-ai-provider": "^3.2.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "^1.46.0",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@types/node": "^26.0.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.0",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.130.0"
+  }
+}

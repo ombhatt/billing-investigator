@@ -1,0 +1,50 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "billing-investigator",
+  "main": "src/server.ts",
+  "compatibility_date": "2026-06-11",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Workers AI. Model ID itself is configurable via vars.MODEL_ID below.
+  // Workers AI has no local emulation: `wrangler dev` proxies AI calls to
+  // Cloudflare, so a `wrangler login` is required even for local development.
+  "ai": { "binding": "AI", "remote": true },
+
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/agents/*", "/api/*"]
+  },
+
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "BillingInvestigatorAgent",
+        "name": "BillingInvestigatorAgent"
+      }
+    ]
+  },
+
+  "migrations": [
+    {
+      "new_sqlite_classes": ["BillingInvestigatorAgent"],
+      "tag": "v1"
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "billing-investigator",
+      "database_id": "01b1a493-7a9e-4787-ae40-daf3be4668b1",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "vars": {
+    // Non-secret. PRD §15.3 requires the model ID be configurable.
+    "MODEL_ID": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  },
+
+  "observability": { "enabled": true }
+}
