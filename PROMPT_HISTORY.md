@@ -141,3 +141,75 @@ Open for later milestones: the model infers the account id from the tool schema'
 fixed constant so all visitors share one investigation (M4 replaces it with a
 real investigation id).
 
+PROMT3 -> Claude
+
+Implement Milestone 2: deterministic billing domain and synthetic data.
+
+Read the relevant computation, synthetic-data, data-model, and testing sections of docs/PRD.md.
+
+Implement:
+1. Complete P0 D1 schema and migrations.
+2. Reproducible synthetic seed generator for abc123.
+3. June, July, and August 2026 data.
+4. Exact July invoice total of $16,900.
+5. Exact August invoice total of $21,720.
+6. Deterministic domain modules for:
+   - rating
+   - invoice generation
+   - invoice comparison
+   - price/volume variance decomposition
+   - duplicate detection
+   - change-point detection
+   - reconciliation
+   - confidence calculation
+7. Integer-cent currency calculations.
+8. Unit tests for every golden value in the PRD.
+
+Do not connect these calculations to the LLM yet.
+Do not build additional UI.
+Do not hardcode the final narrative answer.
+
+Add a development-only command that runs the golden calculations and prints structured JSON.
+
+Run all tests, lint, typecheck, and build.
+Update BUILD_STATUS and PROMPT_HISTORY.
+Stop and report results.
+
+### PROMPT 3 — 2026-09-09 · Claude Code (Opus 5)
+
+Milestone 2 complete. 109 tests across 9 files; typecheck, lint and build green.
+
+Added `migrations/0002_billing_schema.sql` (nine tables, FKs, indexes),
+`seed/` (seeded PRNG, constants, generator, SQL emitter, runner), eight domain
+modules under `src/domain/`, and `scripts/goldenFacts.ts` behind `npm run golden`.
+
+`npm run golden` prints exactly the PRD §20.4 block: 2172000 / 1690000 /
+482000 cents, 28.5%, Workers 464000, Workers AI 18000, price_changed false,
+change_date 2026-08-14, dep-1842, 0/0 duplicates, reconciliation passed,
+100% explained, confidence high.
+
+Three decisions worth recording:
+
+1. **Change-point detection needed a refinement.** PRD §12.7's median-window
+   scan does not uniquely select August 14 — a five-day post-window reads as
+   shifted when only three of its days are, so medians tie across August 12-16
+   and jitter picks the winner. Added an onset rule: the candidate day must be
+   in the new regime and the day before it must not. Documented in
+   `BUILD_STATUS.md` and asserted by a test that the neighbours are not chosen.
+
+2. **Exact monthly totals without hardcoding.** Each month's target is
+   distributed across weighted hourly slots with the remainder going to the last
+   slot, so July lands on 1,000,000,000 requests and August on 1,580,000,000
+   regardless of the daily shape.
+
+3. **Retired the hand-written `seed/0001_accounts.sql`.** The generator now
+   emits the account row too, so the golden figures live only in
+   `seed/constants.ts`. Generated SQL goes to `.seed/golden.sql`, which is
+   gitignored.
+
+Verified against D1, not only in memory: migration applied and generated SQL
+loaded locally, with `invoices` returning 1690000 and 2172000 cents.
+
+Nothing is wired to the LLM; `src/domain/` imports no Cloudflare binding and its
+tests run in plain Node.
+

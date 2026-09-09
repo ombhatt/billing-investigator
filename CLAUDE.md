@@ -10,10 +10,11 @@ Source of truth: `docs/PRD.md`. Build order: `docs/BUILD_PLAN.md`. Progress:
 npm install
 npm run dev                  # local worker + UI
 npm run db:migrate:local     # apply migrations to local D1
-npm run db:seed:local        # deterministic synthetic seed
-npm run test:unit            # pure domain, no runtime
+npm run db:seed:local        # regenerate + load deterministic synthetic seed
+npm run seed:build           # write .seed/golden.sql without loading it
+npm run golden               # print the golden fact block as JSON (add -- --full)
+npm run test:unit            # pure domain, plain Node, no runtime
 npm run test:integration     # tools + agent, Workers pool
-npm run test:e2e             # golden investigation
 npm test                     # all
 npm run typecheck && npm run lint && npm run build
 npm run deploy

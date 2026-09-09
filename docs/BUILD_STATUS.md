@@ -4,7 +4,7 @@ Tracks execution of `docs/BUILD_PLAN.md`. Update this file as part of every mile
 change — a stale status file is a defect.
 
 **Last updated:** 2026-09-09
-**Phase:** Milestone 1 complete and deployed. Milestone 2 not started.
+**Phase:** Milestones 1 and 2 complete. Milestone 3 (tool layer) not started.
 
 **Deployed:** https://billing-investigator.om-bhatt.workers.dev
 
@@ -17,7 +17,7 @@ change — a stale status file is a defect.
 | # | Milestone | Status | Exit criterion |
 |---|---|---|---|
 | 1 | Walking skeleton and seeded truth | `complete` | Seeded D1 returns the golden invoice totals; skeleton deploys |
-| 2 | Deterministic domain engine | `pending` | All PRD §20.4 facts computed in pure TypeScript, no LLM |
+| 2 | Deterministic domain engine | `complete` | All PRD §20.4 facts computed in pure TypeScript, no LLM |
 | 3 | Tool layer | `pending` | Golden investigation runs end to end through 9 tools, no model |
 | 4 | Agent | `pending` | Agent cannot declare correctness without reconciliation or call unknown tools |
 | 5 | UI and submission | `pending` | Manual golden flow passes on the deployed URL and survives refresh |
@@ -67,23 +67,28 @@ Resolve before or during Milestone 1. Record every outcome in `ARCHITECTURE.md`.
 
 ## Golden fact regression
 
-Asserted by `test/e2e/golden.spec.ts`. Any drift is a build failure, not a test to update.
+Asserted by `test/unit/golden.spec.ts` and printed by `npm run golden`. Any drift
+is a build failure, not a test to update.
 
 | Fact | Expected | Verified |
 |---|---|---|
-| `current_total_cents` | `2172000` | `pending` |
-| `comparison_total_cents` | `1690000` | `pending` |
-| `variance_cents` | `482000` | `pending` |
-| `workers_variance_cents` | `464000` | `pending` |
-| `workers_ai_variance_cents` | `18000` | `pending` |
-| `price_changed` | `false` | `pending` |
-| `change_date` | `2026-08-14` | `pending` |
-| `correlated_event_id` | `dep-1842` | `pending` |
-| `exact_duplicate_count` | `0` | `pending` |
-| `probable_duplicate_count` | `0` | `pending` |
-| `reconciliation_status` | `passed` | `pending` |
-| `explained_percent` | `100` | `pending` |
-| `confidence` | `high` | `pending` |
+| `current_total_cents` | `2172000` | `domain` |
+| `comparison_total_cents` | `1690000` | `domain` |
+| `variance_cents` | `482000` | `domain` |
+| `percentage_variance_display` | `28.5` | `domain` |
+| `workers_variance_cents` | `464000` | `domain` |
+| `workers_ai_variance_cents` | `18000` | `domain` |
+| `price_changed` | `false` | `domain` |
+| `change_date` | `2026-08-14` | `domain` |
+| `correlated_event_id` | `dep-1842` | `domain` |
+| `exact_duplicate_count` | `0` | `domain` |
+| `probable_duplicate_count` | `0` | `domain` |
+| `reconciliation_status` | `passed` | `domain` |
+| `explained_percent` | `100` | `domain` |
+| `confidence` | `high` | `domain` |
+
+`domain` means proven in pure TypeScript. M3 re-proves the same block through
+the nine tools reading D1; M4 through the agent.
 
 ---
 
@@ -163,6 +168,47 @@ from remote D1, and state restored after reload.
 > The deployed URL is public and unauthenticated. Anyone with the link can chat
 > and consume Workers AI quota. All data is synthetic.
 
+---
+
+## Milestone 2 — deterministic domain engine
+
+Complete. 109 tests pass in 9 files; typecheck, lint and build are green.
+
+**Schema.** `migrations/0002_billing_schema.sql` adds the remaining nine P0
+tables with foreign keys and the indexes PRD §14 calls for. Investigation state
+is deliberately absent from D1: the agent's Durable Object owns it, so the
+tables PRD §14 lists as optional are not needed.
+
+**Seed.** `seed/generateSyntheticData.ts` is seeded (`SEED = 20260909`) and
+reproducible — a test asserts two runs emit byte-identical SQL. Hourly Workers
+events across two zones plus daily Workers AI events: 4,508 events, 276 daily
+rows, 3 invoices, 15 lines. Monthly totals are hit exactly by distributing each
+month's target across weighted slots and giving the remainder to the last slot,
+so the shape can change without the totals drifting.
+
+**Verified against D1**, not just in memory: migration applied and the generated
+SQL loaded locally, `invoices` returning 1690000 and 2172000 cents.
+
+### Change-point detection: a documented refinement
+
+PRD §12.7's median-window scan alone does **not** uniquely identify August 14 on
+this data. A five-day post-window still reads as shifted when only three of its
+days are, so the window medians tie across August 12-16 and the winner comes
+down to jitter.
+
+The implementation keeps the prescribed median comparison and adds an onset
+rule: a candidate qualifies only when the day itself is in the new regime
+(≥ 1.5× the pre-window median) and the day before it is not. That selects the
+date the shift *began*, which is what the question asks, and makes August 14 the
+unique answer. If no candidate qualifies, it falls back to the largest median
+change with `material: false`. A test asserts the neighbours are not selected.
+
+### Rounding order
+
+Each service's monthly charge is rounded to the nearest cent, half up, before
+any summation (PRD §12.2). `rateCents` does the multiply in `BigInt` and rounds
+with integer arithmetic only, so no currency value ever passes through a float.
+
 ### Known gaps carried into later milestones
 
 - The model currently infers `abc123` from the `.describe()` example on the tool
@@ -180,3 +226,4 @@ from remote D1, and state restored after reload.
 | 2026-09-09 | PRD reviewed. `BUILD_PLAN.md`, `CLAUDE.md`, `BUILD_STATUS.md` created. No code written. Committed `efd5b58`. |
 | 2026-09-09 | M1 built. Spikes S3/S4/S5 resolved against the real SDK — several documented APIs had moved. All four gates green. Live chat blocked on Cloudflare auth. |
 | 2026-09-09 | `wrangler login` + workers.dev subdomain unblocked dev. Smoke test passes: one tool call, correct answer, state restored after refresh, reset works. Found and worked around a `workers-ai-provider` streaming defect (S1). |
+| 2026-09-09 | M2 complete. Full P0 schema, reproducible seed, eight domain modules, 109 tests. Every PRD §20.4 fact computed with no LLM. Change-point detection needed a documented onset rule to land on Aug 14 uniquely. |

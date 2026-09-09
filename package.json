@@ -11,13 +11,15 @@
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src/ test/",
     "test": "vitest run",
-    "test:unit": "vitest run test/unit",
-    "test:integration": "vitest run test/integration",
+    "test:unit": "vitest run --project unit",
+    "test:integration": "vitest run --project integration",
+    "golden": "tsx scripts/goldenFacts.ts",
+    "seed:build": "tsx seed/run.ts",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply billing-investigator --local",
-    "db:seed:local": "wrangler d1 execute billing-investigator --local --file=seed/0001_accounts.sql",
+    "db:seed:local": "npm run seed:build && wrangler d1 execute billing-investigator --local --file=.seed/golden.sql",
     "db:migrate:remote": "wrangler d1 migrations apply billing-investigator --remote",
-    "db:seed:remote": "wrangler d1 execute billing-investigator --remote --file=seed/0001_accounts.sql"
+    "db:seed:remote": "npm run seed:build && wrangler d1 execute billing-investigator --remote --file=.seed/golden.sql"
   },
   "dependencies": {
     "@cloudflare/ai-chat": "^0.9.3",
@@ -36,6 +38,7 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
+    "tsx": "^4.23.13",
     "typescript": "^6.0.3",
     "vite": "^8.1.0",
     "vitest": "^4.1.0",
