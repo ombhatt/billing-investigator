@@ -14,6 +14,7 @@
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
     "golden": "tsx scripts/goldenFacts.ts",
+    "investigate": "vitest run --project integration test/integration/goldenToolRun.spec.ts --reporter=verbose",
     "seed:build": "tsx seed/run.ts",
     "cf-typegen": "wrangler types",
     "db:migrate:local": "wrangler d1 migrations apply billing-investigator --local",

@@ -12,7 +12,8 @@ npm run dev                  # local worker + UI
 npm run db:migrate:local     # apply migrations to local D1
 npm run db:seed:local        # regenerate + load deterministic synthetic seed
 npm run seed:build           # write .seed/golden.sql without loading it
-npm run golden               # print the golden fact block as JSON (add -- --full)
+npm run golden               # golden fact block from pure domain code (add -- --full)
+npm run investigate          # same block, run through the nine tools against D1
 npm run test:unit            # pure domain, plain Node, no runtime
 npm run test:integration     # tools + agent, Workers pool
 npm test                     # all
@@ -34,7 +35,7 @@ React UI  ->  Worker routing  ->  BillingInvestigatorAgent (Durable Object)
 |---|---|---|
 | `src/domain/` | Money, rating, variance, change point, duplicates, reconciliation | Import D1, Workers AI, or any runtime binding |
 | `src/repositories/` | Prepared-statement D1 access | Interpolate strings into SQL |
-| `src/tools/` | Typed read-only tool handlers, validation, account scoping | Accept SQL, URLs, or paths from the model |
+| `src/tools/` | Typed read-only tool handlers, validation, account scoping | Write SQL, or accept SQL/URLs/paths from the model |
 | `src/agent/` | Classification, playbook, bounded loop, explanation | Compute authoritative money |
 | `src/ui/` | Question, progress, evidence, summary | Show chain-of-thought |
 

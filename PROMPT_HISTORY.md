@@ -213,3 +213,71 @@ loaded locally, with `invoices` returning 1690000 and 2172000 cents.
 Nothing is wired to the LLM; `src/domain/` imports no Cloudflare binding and its
 tests run in plain Node.
 
+PROMT4 -> Claude
+
+Implement Milestone 3: typed investigation tools.
+
+Implement the P0 tools from docs/PRD.md:
+- get_account_context
+- compare_invoices
+- decompose_variance
+- get_usage_timeseries
+- get_price_versions
+- detect_usage_change_point
+- get_account_events
+- check_duplicate_usage
+- reconcile_invoice
+
+Requirements:
+1. Tools must call tested domain/repository functions.
+2. Tools may not accept arbitrary SQL.
+3. All D1 access must use prepared statements.
+4. Every result must include sourceRecordIds, evidence, executedAt, and dataLimitations.
+5. Enforce account scoping to abc123.
+6. Add input validation.
+7. Add tool contract and authorization tests.
+8. Add a deterministic investigation runner that executes the complete golden investigation without using an LLM.
+
+Do not implement agent planning yet.
+Do not substantially change the UI.
+
+Run all verification commands and update project documentation.
+
+### PROMPT 4 — 2026-09-09 · Claude Code (Opus 5)
+
+Milestone 3 complete. 195 tests across 11 files; typecheck, lint and build green.
+
+Added five repositories, all nine tools, a `createTool` wrapper carrying
+validation / account scoping / safe errors, the allowlist and caching
+`ToolRunner`, and `investigationRunner.ts` behind `npm run investigate`.
+
+**The exit criterion held:** the golden fact block produced by running the nine
+tools against D1 is asserted equal to the pure-domain block. That is the check
+the M2 tests could not make — a repository that mis-mapped a column would pass
+every domain test and fail this one.
+
+Three decisions worth recording:
+
+1. **The model's tool surface is unchanged at one tool.** All nine exist and are
+   allowlisted, but `buildTools()` still exposes only `get_account_context`.
+   Handing this model nine tools without M4's bounded loop invites the retry
+   loop already seen in M1, and it would regress the deployed demo. The registry
+   is the seam M4 opens.
+
+2. **`createTool` wrapper rather than nine hand-rolled tools.** Validation,
+   scope enforcement and error mapping happen once. Nine near-identical
+   implementations would eventually differ in exactly the security-relevant
+   step.
+
+3. **A static SQL-safety test, not only behavioural ones.** A behavioural test
+   proves only the inputs it tries. `test/unit/sqlSafety.spec.ts` asserts that
+   only ALL-CAPS column constants are interpolated into a `prepare()` template,
+   that the tool layer contains no SQL, and that the read path contains no write
+   statement.
+
+   Its first version was too blunt and flagged `` `${period}-%` `` — a *bind
+   value*, not SQL text. Scoped it to the `prepare()` argument and verified it
+   still fails on an injected `${accountId}` in SQL text.
+
+No agent planning, no UI change.
+

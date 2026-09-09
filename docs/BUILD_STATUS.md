@@ -4,7 +4,7 @@ Tracks execution of `docs/BUILD_PLAN.md`. Update this file as part of every mile
 change — a stale status file is a defect.
 
 **Last updated:** 2026-09-09
-**Phase:** Milestones 1 and 2 complete. Milestone 3 (tool layer) not started.
+**Phase:** Milestones 1-3 complete. Milestone 4 (agent) not started.
 
 **Deployed:** https://billing-investigator.om-bhatt.workers.dev
 
@@ -18,7 +18,7 @@ change — a stale status file is a defect.
 |---|---|---|---|
 | 1 | Walking skeleton and seeded truth | `complete` | Seeded D1 returns the golden invoice totals; skeleton deploys |
 | 2 | Deterministic domain engine | `complete` | All PRD §20.4 facts computed in pure TypeScript, no LLM |
-| 3 | Tool layer | `pending` | Golden investigation runs end to end through 9 tools, no model |
+| 3 | Tool layer | `complete` | Golden investigation runs end to end through 9 tools, no model |
 | 4 | Agent | `pending` | Agent cannot declare correctness without reconciliation or call unknown tools |
 | 5 | UI and submission | `pending` | Manual golden flow passes on the deployed URL and survives refresh |
 
@@ -84,11 +84,58 @@ is a build failure, not a test to update.
 | `exact_duplicate_count` | `0` | `domain` |
 | `probable_duplicate_count` | `0` | `domain` |
 | `reconciliation_status` | `passed` | `domain` |
-| `explained_percent` | `100` | `domain` |
-| `confidence` | `high` | `domain` |
+| `explained_percent` | `100` | `domain` + `tools` |
+| `confidence` | `high` | `domain` + `tools` |
 
-`domain` means proven in pure TypeScript. M3 re-proves the same block through
-the nine tools reading D1; M4 through the agent.
+`domain` means proven in pure TypeScript; `tools` means re-proven by running the
+nine tools against D1. A test asserts the two paths produce identical blocks, so
+a repository that reshaped or dropped data would fail rather than pass quietly.
+M4 adds the agent path.
+
+---
+
+## Milestone 3 — typed investigation tools
+
+Complete. 195 tests across 11 files; typecheck, lint and build green.
+
+**Repositories** (`src/repositories/`): account, usage, pricing, invoice and
+event access, every query a prepared statement. Optional filters use fixed
+statement variants rather than concatenation, and `get_account_events` filters
+types in code instead of building a dynamic `IN` list.
+
+**Tools** (`src/tools/`): all nine from PRD §11. A `createTool` wrapper applies
+input parsing, account-scope enforcement and safe error mapping in one place, so
+none of the nine can forget one. Every result carries `tool`, `executedAt`,
+`sourceRecordIds`, `evidence` and `dataLimitations`.
+
+**Registry** (`src/tools/registry.ts`): the allowlist plus `ToolRunner`, which
+caches identical calls within an investigation (FR-5). Failures are not cached,
+so a transient error stays retryable. Argument order does not create a second
+cache entry.
+
+**Runner** (`src/tools/investigationRunner.ts`): executes the nine-step playbook
+against D1 with no model. `npm run investigate` runs it.
+
+### What the tool tests actually prove
+
+- Each of the nine is checked for envelope completeness, evidence-card shape,
+  missing/unparseable input, cross-account denial, injection-shaped input, and
+  error messages that leak no SQL — driven off the allowlist, so a tenth tool
+  cannot be added without being covered.
+- `test/unit/sqlSafety.spec.ts` is a static check: only ALL-CAPS column
+  constants may be interpolated into a `prepare()` template, the tool layer
+  contains no SQL at all, and the read path contains no write statement. It is
+  scoped to the `prepare()` argument, since interpolating a *bind value* such as
+  `` `${period}-%` `` is safe. Verified to fail on an injected
+  `${accountId}` in SQL text.
+- The golden run through D1 is asserted to equal the pure-domain block exactly.
+
+### Model tool surface deliberately unchanged
+
+All nine tools exist and are allowlisted, but `buildTools()` still exposes only
+`get_account_context` to the model. Handing this model nine tools without the
+bounded loop and playbook invites the retry loop seen in M1. The registry is the
+seam M4 opens; the deployed demo is unaffected.
 
 ---
 
@@ -227,3 +274,4 @@ with integer arithmetic only, so no currency value ever passes through a float.
 | 2026-09-09 | M1 built. Spikes S3/S4/S5 resolved against the real SDK — several documented APIs had moved. All four gates green. Live chat blocked on Cloudflare auth. |
 | 2026-09-09 | `wrangler login` + workers.dev subdomain unblocked dev. Smoke test passes: one tool call, correct answer, state restored after refresh, reset works. Found and worked around a `workers-ai-provider` streaming defect (S1). |
 | 2026-09-09 | M2 complete. Full P0 schema, reproducible seed, eight domain modules, 109 tests. Every PRD §20.4 fact computed with no LLM. Change-point detection needed a documented onset rule to land on Aug 14 uniquely. |
+| 2026-09-09 | M3 complete. Five repositories, nine tools, allowlist + caching runner, 195 tests. Golden block re-proven through D1 and asserted identical to the domain path. Model tool surface left at one tool until M4's bounded loop exists. |
