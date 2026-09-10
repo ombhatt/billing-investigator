@@ -228,3 +228,70 @@ describe("safeNarrative falls back rather than showing partial prose", () => {
     expect(result.usedModel).toBe(false);
   });
 });
+
+/**
+ * The wrong invoice, described correctly.
+ *
+ * Production returned "The May 2026 invoice jumped by $4,820.00 compared to
+ * April 2026" over August and July's data. Every amount was real, every
+ * identifier was real, so no existing check objected — and the sentence was
+ * false in the way that matters most, because it named an invoice nobody had
+ * looked at.
+ */
+describe("prose may not name a period that was not investigated", () => {
+  const investigated = { periods: ["2026-08", "2026-07"] };
+
+  it("rejects the exact sentence production produced", () => {
+    const result = checkNarrative(
+      "The May 2026 invoice jumped by $4,820.00 compared to April 2026.",
+      { ...context, ...investigated }
+    );
+
+    expect(result.ok).toBe(false);
+    const periods = result.violations
+      .filter((v) => v.kind === "unknown_period")
+      .map((v) => v.value)
+      .sort();
+    expect(periods).toEqual(["2026-04", "2026-05"]);
+  });
+
+  it("accepts the months that were investigated, however spelled", () => {
+    expect(
+      checkNarrative(
+        "The August 2026 invoice is higher than July 2026.",
+        { ...context, ...investigated }
+      ).ok
+    ).toBe(true);
+    expect(
+      checkNarrative("2026-08 exceeded 2026-07.", {
+        ...context,
+        ...investigated
+      }).ok
+    ).toBe(true);
+  });
+
+  it("does not read the word 'may' as a month", () => {
+    const result = checkNarrative(
+      "This may indicate a deployment change; usage may have risen.",
+      { ...context, ...investigated }
+    );
+    expect(result.violations.filter((v) => v.kind === "unknown_period")).toEqual([]);
+  });
+
+  it("does not mistake a day inside a full date for a period", () => {
+    // 2026-08-14 must not be read as the period 2026-08 and then re-checked.
+    const result = checkNarrative("Usage shifted on 2026-08-14.", {
+      ...context,
+      ...investigated
+    });
+    expect(result.violations.filter((v) => v.kind === "unknown_period")).toEqual([]);
+  });
+
+  it("is inert when the investigated periods are unknown", () => {
+    expect(
+      checkNarrative("The May 2026 invoice rose.", context).violations.filter(
+        (v) => v.kind === "unknown_period"
+      )
+    ).toEqual([]);
+  });
+});

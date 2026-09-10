@@ -674,3 +674,35 @@ was requested and nothing is being overridden.
 One existing test asserted the old substitution as though it were the
 requirement. It was rewritten rather than deleted: the comment now records that
 review was right and why.
+
+### The same defect, one layer lower
+
+Deploying the above and testing it in production showed the fix was incomplete.
+"Why did my May 2026 invoice jump compared to April 2026?" still returned a
+reconciled, high-confidence answer — the panel correctly showing 2026-07 and
+2026-08, the prose reading *"The May 2026 invoice jumped by $4,820.00 compared
+to April 2026."*
+
+Validating the model's answer was never going to be enough. Shown the available
+periods, the live model does not report the months it was asked about and let
+the server object; it quietly answers with the available ones instead. The
+substitution happens *inside* the model, before any check of its output can see
+it.
+
+So the reader's own words are now checked first, against the invoices the
+account actually has, before the model is consulted at all. Only the current
+turn's text is parsed: the synthesised clarification context still quotes the
+original request, so parsing that would re-raise the same objection forever and
+the reader could never answer it.
+
+The prose was the second half. Every amount in that sentence was real and every
+identifier was real, so the narrative guard — which checks amounts, percentages,
+ISO dates and identifiers — had nothing to object to. It was not checking what
+the answer was *about*. `periodsMentioned()` (in `src/domain/period.ts`, so both
+callers share one definition) now reads months in either spelling, and prose
+naming a period that was not investigated is rejected like any other fabrication.
+
+Two details that matter in the parsing: a full `2026-08-14` must not be read as
+the period `2026-08`, or the golden narrative would be flagged on every run; and
+"may" is only a month when a year sits beside it, or "this may indicate" becomes
+a violation.

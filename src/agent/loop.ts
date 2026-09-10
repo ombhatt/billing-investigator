@@ -1,4 +1,4 @@
-import { periodEnd, periodStart } from "../domain/period.js";
+import { periodEnd, periodsMentioned, periodStart } from "../domain/period.js";
 import { applyToolFacts, emptyFacts } from "../tools/facts.js";
 import type { ToolRunner } from "../tools/registry.js";
 import { isFailure, type ToolResult } from "../types/tools.js";
@@ -448,6 +448,7 @@ async function classifyPeriods(
   record: InvestigationRecord,
   question: string,
   provenance: string,
+  userText: string,
   deps: LoopDeps
 ): Promise<InvestigationRecord> {
   const context = await deps.runner.run("get_account_context", {
@@ -457,6 +458,33 @@ async function classifyPeriods(
     ? []
     : (context.data as { availableInvoices: { period: string }[] })
         .availableInvoices.map((i) => i.period);
+
+  // Checked against what the reader actually typed, before the model is asked.
+  //
+  // Validating only the model's answer is not enough: shown the available
+  // periods, the live model quietly answers with those instead of the months
+  // it was asked about, so the substitution happens before any check can see
+  // it. Production proved this — "why did my May 2026 invoice jump compared to
+  // April 2026?" returned a reconciled, high-confidence answer whose figures
+  // were August's and whose prose said May.
+  //
+  // Only this turn's text is read. The synthesised clarification context still
+  // quotes the original request, so parsing that would re-raise the same
+  // objection forever and the reader could never answer it.
+  if (periods.length > 0) {
+    const asked = periodsMentioned(userText);
+    const unavailable = asked.filter((p) => !periods.includes(p));
+    if (unavailable.length > 0) {
+      return {
+        ...record,
+        originalQuestion: record.originalQuestion ?? provenance,
+        state: transition(record.state, "clarification_required"),
+        clarificationQuestion:
+          `I have no invoice for ${unavailable.join(" or ")} on this account. ` +
+          `Available periods are ${listPeriods(periods)}. Which two should I compare?`
+      };
+    }
+  }
 
   let classification: CaseClassification | null;
   try {
@@ -531,12 +559,13 @@ export async function runInvestigationTurn(
   // reclassifying, so the periods stayed null and every turn after a
   // clarification investigated nothing and returned unresolved.
   if (record.state === "created") {
-    record = await classifyPeriods(record, question, question, deps);
+    record = await classifyPeriods(record, question, question, question, deps);
   } else if (record.state === "clarification_required") {
     record = await classifyPeriods(
       record,
       clarificationContext(record, question),
       record.originalQuestion ?? question,
+      question,
       deps
     );
   }
@@ -709,6 +738,7 @@ export async function runInvestigationTurn(
       evidence: record.evidence,
       invoiceAppearsCorrect: assessment.invoiceAppearsCorrect,
       confidence: assessment.confidence,
+      periods: [record.currentPeriod!, record.comparisonPeriod!],
       rejectGeneratedSections: true
     });
     if (narrative.usedModel) {

@@ -223,3 +223,89 @@ describe("periods the account does not have are reported, not substituted", () =
     expect(record.comparisonPeriod).toBe("2026-07");
   });
 });
+
+/**
+ * Validating only the model's answer is not enough.
+ *
+ * Shown the available periods, the live model answers with those rather than
+ * the months it was asked about, so the substitution happens before any check
+ * of its output can see it. Production returned a reconciled, high-confidence
+ * answer to "why did my May 2026 invoice jump compared to April 2026?" whose
+ * figures were August's and whose prose said May.
+ */
+describe("a question naming months the account does not have is challenged", () => {
+  /** Answers with available periods regardless of what was asked, as the real model does. */
+  const clamping = () => new ReplyModel([{}, {}]);
+
+  it("asks rather than answering about a different month", async () => {
+    const model = clamping();
+    const record = await runInvestigationTurn(
+      fresh(),
+      "Why did my May 2026 invoice jump compared to April 2026?",
+      deps(model)
+    );
+
+    expect(record.state).toBe("clarification_required");
+    expect(record.clarificationQuestion).toContain("2026-05");
+    expect(record.clarificationQuestion).toContain("2026-04");
+    expect(record.clarificationQuestion).toContain("2026-08");
+    expect(record.summary).toBeNull();
+    // The model was never even consulted: the question was answerable without it.
+    expect(model.classifyCalls).toHaveLength(0);
+  });
+
+  it("proceeds when the named months are ones the account has", async () => {
+    const model = clamping();
+    const record = await runInvestigationTurn(
+      fresh(),
+      "Why is August 2026 higher than July 2026?",
+      deps(model)
+    );
+
+    expect(record.state).toBe("completed");
+    expect(record.currentPeriod).toBe("2026-08");
+  });
+
+  it("lets the reader correct themselves without re-raising the old months", async () => {
+    // The synthesised clarification context still quotes the original request.
+    // Parsing that instead of this turn's reply would object forever and the
+    // reader could never answer.
+    const model = clamping();
+    const asked = await runInvestigationTurn(
+      fresh(),
+      "Why did my May 2026 invoice jump compared to April 2026?",
+      deps(model)
+    );
+    expect(asked.state).toBe("clarification_required");
+
+    const answered = await runInvestigationTurn(
+      asked,
+      "Sorry — August 2026 versus July 2026 please.",
+      deps(model)
+    );
+
+    expect(answered.state).toBe("completed");
+    expect(answered.currentPeriod).toBe("2026-08");
+    expect(answered.comparisonPeriod).toBe("2026-07");
+    expect(answered.facts.variance_cents).toBe(482000);
+  });
+
+  it("does not let the answer describe a month it did not investigate", async () => {
+    // The guard behind the guard: even having settled on August and July, prose
+    // naming May is rejected and the deterministic finding is shown instead.
+    class MislabellingModel extends ReplyModel {
+      async explain(): Promise<string> {
+        return "The May 2026 invoice jumped by $4,820.00 compared to April 2026.";
+      }
+    }
+    const record = await runInvestigationTurn(
+      fresh(),
+      "Why is August 2026 higher than July 2026?",
+      deps(new MislabellingModel([{}]))
+    );
+
+    expect(record.state).toBe("completed");
+    expect(record.summary!.generatedBy).toBe("deterministic_fallback");
+    expect(record.summary!.finding).not.toContain("May 2026");
+  });
+});

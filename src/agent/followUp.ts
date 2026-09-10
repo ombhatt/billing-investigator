@@ -40,7 +40,10 @@ export async function answerFollowUp(
       facts: record.facts,
       evidence: record.evidence,
       invoiceAppearsCorrect: record.summary.invoiceAppearsCorrect,
-      confidence: record.facts.confidence
+      confidence: record.facts.confidence,
+      periods: [record.currentPeriod, record.comparisonPeriod].filter(
+        (p): p is string => p !== null
+      )
     });
     if (narrative.usedModel) {
       return {

@@ -1,4 +1,5 @@
 import { formatUsd } from "../domain/money.js";
+import { periodsMentioned } from "../domain/period.js";
 import type { EvidenceCard } from "../types/tools.js";
 import type { InvestigationFacts } from "../tools/facts.js";
 
@@ -26,6 +27,7 @@ export type NarrativeViolation =
   | { kind: "unknown_identifier"; value: string }
   | { kind: "unknown_percentage"; value: string }
   | { kind: "unknown_date"; value: string }
+  | { kind: "unknown_period"; value: string }
   | { kind: "asserted_causation"; value: string }
   | { kind: "unearned_correctness"; value: string }
   | { kind: "confidence_claim"; value: string }
@@ -119,6 +121,11 @@ export interface NarrativeContext {
   invoiceAppearsCorrect: boolean;
   /** When set, the prose must not contradict the computed rating. */
   confidence?: string | null;
+  /**
+   * The periods actually investigated. Prose naming any other month is
+   * describing an invoice that was never looked at.
+   */
+  periods?: string[];
   /** Summary prose must not write the deterministically generated sections. */
   rejectGeneratedSections?: boolean;
 }
@@ -148,6 +155,22 @@ export function checkNarrative(
   for (const match of prose.match(IDENTIFIER) ?? []) {
     if (!vocabulary.identifiers.has(match.toLowerCase())) {
       violations.push({ kind: "unknown_identifier", value: match });
+    }
+  }
+
+  // Which months the answer is *about*, not just the digits in it.
+  //
+  // Every figure can be correct and the answer still be wrong. Production
+  // returned "The May 2026 invoice jumped by $4,820.00 compared to April 2026"
+  // over August and July's data: no amount was fabricated, so nothing above
+  // objected, and the sentence was false in the one way that matters most —
+  // it named the wrong invoice.
+  if (context.periods && context.periods.length > 0) {
+    const investigated = new Set(context.periods);
+    for (const period of periodsMentioned(prose)) {
+      if (!investigated.has(period)) {
+        violations.push({ kind: "unknown_period", value: period });
+      }
     }
   }
 

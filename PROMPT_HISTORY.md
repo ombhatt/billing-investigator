@@ -752,3 +752,23 @@ facts unchanged.
 Also corrected two stale claims in `ARCHITECTURE.md` found while writing this up:
 the state diagram had no self-loop on `clarification_required`, and the loop
 section still said the golden path uses nine tool calls rather than eleven.
+
+**Post-deploy: the same defect one layer lower.** Verifying finding 9 in
+production, "why did my May 2026 invoice jump compared to April 2026?" still
+returned a reconciled, high-confidence answer, the prose reading *"The May 2026
+invoice jumped by $4,820.00 compared to April 2026"* over August and July's
+data.
+
+My fix validated the model's *answer*. But shown the available periods, the live
+model does not report the months it was asked about — it quietly answers with
+the available ones, so the substitution happens inside the model where no check
+of its output can see it. The reader's own words are now checked first, against
+the invoices the account has, before the model is consulted at all.
+
+The prose was the second half, and the more interesting one: **every amount and
+identifier in that sentence was real**, so the narrative guard had nothing to
+object to. It checked the figures and never checked what the answer was *about*.
+`periodsMentioned()` now reads months in either spelling and prose naming a
+period that was not investigated is rejected like any other fabrication.
+
+378 tests, up from 361. Mutation-checked: removing either guard fails four.
