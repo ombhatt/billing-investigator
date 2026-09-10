@@ -822,3 +822,26 @@ now takes an optional `assumeYear` used only where that context exists.
 year. It is a verb far more often than a month here — "usage may have risen"
 must not become a period — and missing a genuine bare "may" is the cheaper
 mistake of the two.
+
+### The reader's choice outranks the model's
+
+The same manual session found the sharper form of the same defect. Asked "which
+two should I compare?" and answered **"2026-06 and 2026-07"**, the agent
+investigated 2026-07 against 2026-08 and returned the golden August result as
+the answer.
+
+Finding 9 had taught the loop to check that the model's periods *exist*. Both
+2026-07 and 2026-08 exist, so nothing objected. What was never checked is
+whether they are the periods that were *asked for*.
+
+An explicit instruction is data, not a suggestion. When the reader's text names
+exactly two available periods, those are used and the model's classification is
+discarded — the later as current, the earlier as comparison. The model is still
+consulted, because it also decides case type and whether clarification is
+needed; it simply does not get to overrule a stated choice. Naming more than two
+asks which two rather than picking. Naming none leaves the model's answer in
+force, as before.
+
+This closes the substitution family properly. Finding 9 stopped the agent
+answering about a period the account does not have; this stops it answering
+about a period the reader did not ask for.

@@ -172,7 +172,7 @@ describe("periods the account does not have are reported, not substituted", () =
     ]);
     const record = await runInvestigationTurn(
       fresh(),
-      "why did May jump against April?",
+      "why did May 2026 jump against April 2026?",
       deps(model)
     );
 
@@ -307,5 +307,103 @@ describe("a question naming months the account does not have is challenged", () 
     expect(record.state).toBe("completed");
     expect(record.summary!.generatedBy).toBe("deterministic_fallback");
     expect(record.summary!.finding).not.toContain("May 2026");
+  });
+});
+
+/**
+ * A bare "May" is deliberately not read as a month — it is a verb far more
+ * often in this domain — so a question naming it without a year is caught by
+ * the other month it names, and by the model's own answer.
+ */
+describe("a bare month name the reader did not qualify", () => {
+  it("still declines, on the month it can resolve", async () => {
+    const model = new ReplyModel([
+      { currentPeriod: "2026-05", comparisonPeriod: "2026-04" }
+    ]);
+    const record = await runInvestigationTurn(
+      fresh(),
+      "why did May jump against April?",
+      deps(model)
+    );
+
+    expect(record.state).toBe("clarification_required");
+    expect(record.clarificationQuestion).toContain("2026-04");
+    expect(record.summary).toBeNull();
+  });
+});
+
+/**
+ * The exact defect found by hand: the reader answered the clarification with
+ * two valid periods and the agent investigated a different pair.
+ *
+ * Asked "which two should I compare?" and told "2026-06 and 2026-07", the live
+ * model replied with 2026-07 and 2026-08. Both exist, so the availability check
+ * had nothing to object to, and the August-versus-July result was returned as
+ * though it answered. Validating that the model's periods are *available* is
+ * not the same as checking they are the ones that were *asked for*.
+ */
+describe("an explicit choice of periods is not overridden by the model", () => {
+  /** Ignores the reply and always answers with the golden pair, as the live model did. */
+  const stubborn = () =>
+    new ReplyModel([
+      { needsClarification: true, clarificationQuestion: "Which two should I compare?" },
+      { currentPeriod: "2026-08", comparisonPeriod: "2026-07" }
+    ]);
+
+  it("compares what the reader asked for", async () => {
+    const model = stubborn();
+    const asked = await runInvestigationTurn(
+      fresh(),
+      "Why did my May 2026 invoice jump compared to April 2026?",
+      deps(model)
+    );
+    expect(asked.state).toBe("clarification_required");
+
+    const answered = await runInvestigationTurn(asked, "2026-06 and 2026-07", deps(model));
+
+    expect(answered.currentPeriod).toBe("2026-07");
+    expect(answered.comparisonPeriod).toBe("2026-06");
+    // And emphatically not the golden pair the model kept insisting on.
+    expect(answered.facts.current_total_cents).not.toBe(2_172_000);
+    expect(answered.facts.variance_cents).not.toBe(482_000);
+  });
+
+  it("honours the same choice however it is written", async () => {
+    for (const reply of [
+      "2026-06 and 2026-07",
+      "June 2026 and July 2026",
+      "compare June and July please"
+    ]) {
+      const model = stubborn();
+      const asked = await runInvestigationTurn(fresh(), "my bill looks odd", deps(model));
+      const answered = await runInvestigationTurn(asked, reply, deps(model));
+
+      expect(answered.currentPeriod).toBe("2026-07");
+      expect(answered.comparisonPeriod).toBe("2026-06");
+    }
+  });
+
+  it("asks again rather than choosing when more than two are named", async () => {
+    const model = stubborn();
+    const asked = await runInvestigationTurn(fresh(), "my bill looks odd", deps(model));
+    const answered = await runInvestigationTurn(
+      asked,
+      "2026-06, 2026-07 and 2026-08",
+      deps(model)
+    );
+
+    expect(answered.state).toBe("clarification_required");
+    expect(answered.clarificationQuestion).toContain("Which two");
+    expect(answered.currentPeriod).toBeNull();
+  });
+
+  it("still defers to the model when the reader names no periods", async () => {
+    // The control: the override must only fire on an explicit instruction.
+    const model = stubborn();
+    const asked = await runInvestigationTurn(fresh(), "my bill looks odd", deps(model));
+    const answered = await runInvestigationTurn(asked, "the two most recent", deps(model));
+
+    expect(answered.currentPeriod).toBe("2026-08");
+    expect(answered.comparisonPeriod).toBe("2026-07");
   });
 });

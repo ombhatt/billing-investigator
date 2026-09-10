@@ -117,10 +117,13 @@ describe("classification", () => {
     // "why did May jump?" became an investigation of August, answered with
     // full confidence. The wrong question answered correctly is worse than no
     // answer, so the periods are named and the investigation waits.
+    //
+    // The question here names no periods, so the model's answer is all there
+    // is to go on.
     const model = new ScriptedModel({
       classification: { currentPeriod: "2099-01", comparisonPeriod: "2099-02" }
     });
-    const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
+    const record = await runInvestigationTurn(fresh(), "why is my bill higher?", deps(model));
 
     expect(record.state).toBe("clarification_required");
     expect(record.currentPeriod).toBeNull();
@@ -129,6 +132,22 @@ describe("classification", () => {
     expect(record.clarificationQuestion).toContain("2099-02");
     expect(record.clarificationQuestion).toContain("2026-08");
     expect(record.summary).toBeNull();
+  });
+
+  it("uses the periods the reader named over the ones the model returned", async () => {
+    // Found by hand. Asked which two to compare and told "2026-06 and 2026-07",
+    // the live model answered 2026-07 and 2026-08 — both available, so the
+    // availability check had nothing to object to, and the agent investigated a
+    // pair the reader never asked for and reported it as the answer.
+    const model = new ScriptedModel({
+      classification: { currentPeriod: "2099-01", comparisonPeriod: "2099-02" }
+    });
+    const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
+
+    // QUESTION names August and July; the model's periods are discarded.
+    expect(record.state).toBe("completed");
+    expect(record.currentPeriod).toBe("2026-08");
+    expect(record.comparisonPeriod).toBe("2026-07");
   });
 
   it("asks for clarification instead of guessing when the model requests it", async () => {

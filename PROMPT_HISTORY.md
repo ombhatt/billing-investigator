@@ -891,3 +891,31 @@ from bare-month matching — it is a verb far more often than a month here.
 
 419 tests, up from 410. Mutation-checked: removing the scope check or the
 "could not answer" preamble fails three.
+
+---
+
+### Found in manual testing — the reader's chosen periods were overridden
+
+Asked "which two should I compare?" and answered "2026-06 and 2026-07", the
+agent investigated 2026-07 against 2026-08 and presented the golden August
+result as the answer.
+
+Finding 9's fix checked that the model's periods *exist*. Both of these did, so
+nothing objected. It never checked that they were the periods *asked for* —
+which, on a clarification reply, is the entire content of the message.
+
+The reader's text now wins: two available periods named explicitly are used
+directly and the model's classification is discarded. The model still runs, for
+case type and clarification, but does not overrule a stated choice. More than
+two named asks which two; none named leaves the model in force.
+
+Two existing tests changed meaning as a result, both in the right direction. The
+golden question names August and July, so a model returning 2099-01/2099-02 is
+now simply overridden rather than triggering a clarification — the old
+expectation was rewritten and a no-periods-named case added to keep the original
+behaviour covered. And a bare "May" is no longer read as a month, so a test
+using "why did May jump against April?" now declines on April alone; it was
+split into an explicit-years case and a bare-month case.
+
+425 tests, up from 419. Mutation-checked: removing the override fails three.
+Golden facts unchanged.

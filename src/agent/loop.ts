@@ -398,7 +398,8 @@ function listPeriods(periods: string[]): string {
  */
 function resolvePeriods(
   classification: CaseClassification | null,
-  periods: string[]
+  periods: string[],
+  requested: string[]
 ): PeriodChoice {
   const sorted = [...periods].sort();
 
@@ -408,6 +409,25 @@ function resolvePeriods(
         periods.length === 0
           ? "I have no invoices for this account, so there is nothing to compare."
           : `I only have one invoice for this account (${sorted[0]}), so there is nothing to compare it with.`
+    };
+  }
+
+  // The reader named them, so there is nothing left to infer.
+  //
+  // Validating only that the model's periods exist was not enough: asked which
+  // two to compare and answered "2026-06 and 2026-07", the live model replied
+  // with 2026-07 and 2026-08 — both available, so nothing objected, and the
+  // agent investigated a pair the reader had not asked for and reported it as
+  // the answer. An explicit instruction is data, not a suggestion, and it does
+  // not go through the model to be confirmed.
+  if (requested.length === 2) {
+    return { currentPeriod: requested[1], comparisonPeriod: requested[0] };
+  }
+  if (requested.length > 2) {
+    return {
+      clarify:
+        `That names ${requested.length} periods (${requested.join(", ")}). ` +
+        "Which two should I compare?"
     };
   }
 
@@ -424,8 +444,8 @@ function resolvePeriods(
     };
   }
 
-  const requested = [classification.currentPeriod, classification.comparisonPeriod];
-  const missing = [...new Set(requested.filter((p) => !periods.includes(p)))];
+  const modelPeriods = [classification.currentPeriod, classification.comparisonPeriod];
+  const missing = [...new Set(modelPeriods.filter((p) => !periods.includes(p)))];
   if (missing.length > 0) {
     return {
       clarify:
@@ -482,8 +502,8 @@ async function classifyPeriods(
   // Only this turn's text is read. The synthesised clarification context still
   // quotes the original request, so parsing that would re-raise the same
   // objection forever and the reader could never answer it.
+  const asked = periodsNamed(userText, periods);
   if (periods.length > 0) {
-    const asked = periodsMentioned(userText);
     const unavailable = asked.filter((p) => !periods.includes(p));
     if (unavailable.length > 0) {
       return {
@@ -510,7 +530,11 @@ async function classifyPeriods(
 
   // The account is never taken from the model: the investigation is bound to
   // one account server-side and a model-supplied id cannot widen that.
-  const choice = resolvePeriods(classification, periods);
+  const choice = resolvePeriods(
+    classification,
+    periods,
+    asked.filter((p) => periods.includes(p))
+  );
   const remembered = record.originalQuestion ?? provenance;
 
   if ("clarify" in choice) {
@@ -768,4 +792,21 @@ export async function runInvestigationTurn(
     ),
     metrics: { ...record.metrics, completedAt: new Date().toISOString() }
   };
+}
+
+/**
+ * Billing periods a piece of user text names.
+ *
+ * The year is inferred from the account's own invoices where the text omits
+ * one, because "August versus July" is how the question is actually asked. Only
+ * years the account has invoices in are tried, so an omitted year can never
+ * invent a period out of range.
+ */
+function periodsNamed(text: string, available: string[]): string[] {
+  const years = [...new Set(available.map((p) => Number(p.slice(0, 4))))];
+  const found = new Set<string>(periodsMentioned(text));
+  for (const year of years) {
+    for (const period of periodsMentioned(text, year)) found.add(period);
+  }
+  return [...found].sort();
 }
