@@ -15,6 +15,7 @@ function reconcile(period: string, overrides: Partial<Parameters<typeof reconcil
     ratedCharges: dataset.ratedCharges,
     prices: dataset.priceVersions,
     invoice,
+    subscriptions: dataset.subscriptions,
     invoiceLines: dataset.invoiceLines.filter(
       (l) => l.invoiceId === invoice.invoiceId
     ),

@@ -31,7 +31,8 @@ const base: Input = {
   ratedCharges: dataset.ratedCharges,
   prices: dataset.priceVersions,
   invoice,
-  invoiceLines: lines
+  invoiceLines: lines,
+  subscriptions: dataset.subscriptions
 };
 
 const run = (overrides: Partial<Input> = {}): ReconciliationReport =>

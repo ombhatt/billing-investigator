@@ -157,6 +157,43 @@ describe("a Workers AI duplicate is not reported as no duplicates", () => {
   });
 });
 
+describe("an unauthorised fixed fee is not reported as correct", () => {
+  beforeEach(async () => {
+    // The invoice charges $100 more than the subscription authorises. Every
+    // sum stays internally consistent, so only a check against the
+    // subscription can catch it.
+    await env.DB.prepare(
+      `UPDATE invoice_lines SET amount_cents = amount_cents + 10000
+        WHERE service_name = 'Platform fee' AND invoice_id = 'inv-abc123-2026-08'`
+    ).run();
+    await env.DB.prepare(
+      `UPDATE invoices SET subtotal_cents = subtotal_cents + 10000,
+              total_cents = total_cents + 10000 WHERE period = '2026-08'`
+    ).run();
+  });
+
+  it("fails reconciliation", async () => {
+    const record = await investigate();
+    expect(record.facts.reconciliation_status).toBe("failed");
+  });
+
+  it("refuses to call the invoice correct", async () => {
+    // Review reproduced this as completed / 100% explained / high confidence.
+    const record = await investigate();
+    expect(record.state).toBe("unresolved");
+    expect(record.summary!.invoiceAppearsCorrect).toBe(false);
+    expect(record.facts.confidence).not.toBe("high");
+  });
+
+  it("does not let 'explained' stand in for 'valid'", async () => {
+    const record = await investigate();
+    // The variance is still fully attributed — that was never the problem.
+    expect(record.facts.explained_percent).toBe(100);
+    // But attribution is not authorisation.
+    expect(record.summary!.invoiceAppearsCorrect).toBe(false);
+  });
+});
+
 describe("a Workers AI reprice is not reported as unchanged pricing", () => {
   beforeEach(async () => {
     const old = dataset.priceVersions.find(

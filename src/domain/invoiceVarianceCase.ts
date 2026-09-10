@@ -113,7 +113,8 @@ export function analyseInvoiceVariance(input: InvoiceVarianceInput) {
     ratedCharges: dataset.ratedCharges,
     prices: dataset.priceVersions,
     invoice: currentInvoice,
-    invoiceLines: current.lines
+    invoiceLines: current.lines,
+    subscriptions: dataset.subscriptions
   });
 
   const confidence = evaluateConfidence({

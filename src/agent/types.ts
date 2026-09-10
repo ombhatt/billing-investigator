@@ -76,6 +76,8 @@ export interface InvestigationRecord {
   comparisonPeriod: string | null;
   focusService: string;
   serviceEffects: ServiceEffectSummary[];
+  /** Fixed charges with no authorising subscription record. */
+  unverifiedFixedCharges: string[];
   state: InvestigationState;
   clarificationQuestion: string | null;
   plan: PlanStep[];

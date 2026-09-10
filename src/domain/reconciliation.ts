@@ -8,6 +8,7 @@ import type {
   Period,
   PriceVersion,
   RatedCharge,
+  Subscription,
   UsageEvent
 } from "./types.js";
 
@@ -34,7 +35,10 @@ export type BoundaryName =
   // Added: nothing checked that a stage existed, or that lines tied to charges.
   | "stage_coverage"
   | "invoice_line_linkage"
-  | "invoice_lines_vs_subtotal";
+  | "invoice_lines_vs_subtotal"
+  // Added: a fixed fee was "explained" merely by appearing on the invoice.
+  | "fixed_fee_vs_subscription"
+  | "subscription_active_for_period";
 
 export interface ReconciliationCheckpoint {
   boundary: BoundaryName;
@@ -55,6 +59,12 @@ export interface ReconciliationReport {
   checkpoints: ReconciliationCheckpoint[];
   totalQuantityDiscrepancy: number;
   totalDiscrepancyCents: number;
+  /**
+   * Fixed charges with no authorising record, so arithmetic consistency is all
+   * that can be verified about them. R2 and D1 are illustrative flat charges in
+   * this dataset (PRD §13.5) and have no subscription behind them.
+   */
+  unverifiedFixedCharges: string[];
   status: "passed" | "failed";
 }
 
@@ -101,6 +111,7 @@ export function reconcileInvoice(input: {
   prices: PriceVersion[];
   invoice: Invoice;
   invoiceLines: InvoiceLine[];
+  subscriptions?: Subscription[];
 }): ReconciliationReport {
   const {
     accountId,
@@ -110,7 +121,8 @@ export function reconcileInvoice(input: {
     ratedCharges,
     prices,
     invoice,
-    invoiceLines
+    invoiceLines,
+    subscriptions = []
   } = input;
 
   const events = usageEvents.filter((e) => e.occurredAt.startsWith(period));
@@ -269,6 +281,52 @@ export function reconcileInvoice(input: {
     );
   }
 
+  // Fixed fees are authorised by a subscription, not by appearing on the
+  // invoice. Without this, an unauthorised platform-fee increase reconciled
+  // cleanly and was reported as fully explained.
+  const unverifiedFixedCharges: string[] = [];
+  for (const line of invoiceLines.filter((l) => l.lineType === "fixed")) {
+    if (line.subscriptionId === null) {
+      unverifiedFixedCharges.push(line.serviceName);
+      continue;
+    }
+
+    const subscription = subscriptions.find(
+      (s) => s.subscriptionId === line.subscriptionId
+    );
+
+    checkpoints.push(
+      checkpoint(
+        "fixed_fee_vs_subscription",
+        line.serviceName,
+        "currency",
+        subscription?.monthlyFeeCents ?? 0,
+        line.amountCents,
+        subscription
+          ? `authorised by ${subscription.subscriptionId}`
+          : `no subscription ${line.subscriptionId} exists`
+      )
+    );
+
+    // A subscription that had ended must not still be billing.
+    const active =
+      subscription !== undefined &&
+      subscription.startedOn <= periodEnd(period) &&
+      (subscription.endedOn === null || subscription.endedOn >= periodStart(period));
+    checkpoints.push(
+      checkpoint(
+        "subscription_active_for_period",
+        line.serviceName,
+        "structure",
+        1,
+        active ? 1 : 0,
+        subscription
+          ? `effective ${subscription.startedOn} to ${subscription.endedOn ?? "open"}`
+          : "subscription not found"
+      )
+    );
+  }
+
   // Invoice-level arithmetic, including the subtotal the old version skipped.
   const lineTotal = sumCents(invoiceLines.map((l) => l.amountCents));
   checkpoints.push(
@@ -307,6 +365,7 @@ export function reconcileInvoice(input: {
     checkpoints,
     totalQuantityDiscrepancy,
     totalDiscrepancyCents,
+    unverifiedFixedCharges,
     status: checkpoints.every((c) => c.passed) ? "passed" : "failed"
   };
 }

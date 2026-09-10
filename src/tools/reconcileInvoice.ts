@@ -2,6 +2,7 @@ import { z } from "zod";
 import { formatUsd } from "../domain/money.js";
 import { reconcileInvoice as reconcile } from "../domain/reconciliation.js";
 import { listPriceVersions, listRatedCharges } from "../repositories/pricingRepository.js";
+import { listSubscriptions } from "../repositories/subscriptionRepository.js";
 import {
   listDailyUsageForPeriod,
   listUsageEventsForPeriod
@@ -21,13 +22,14 @@ export const reconcileInvoice = createTool(
   TOOL_NAME,
   inputSchema,
   async ({ accountId, period }, deps) => {
-    const [side, usageEvents, dailyUsage, ratedCharges, prices] =
+    const [side, usageEvents, dailyUsage, ratedCharges, prices, subscriptions] =
       await Promise.all([
         loadInvoiceSide(deps, accountId, period),
         listUsageEventsForPeriod(deps.db, accountId, period),
         listDailyUsageForPeriod(deps.db, accountId, period),
         listRatedCharges(deps.db, accountId, period),
-        listPriceVersions(deps.db, accountId)
+        listPriceVersions(deps.db, accountId),
+        listSubscriptions(deps.db, accountId)
       ]);
 
     const report = reconcile({
@@ -38,7 +40,8 @@ export const reconcileInvoice = createTool(
       ratedCharges,
       prices,
       invoice: side.invoice,
-      invoiceLines: side.lines
+      invoiceLines: side.lines,
+      subscriptions
     });
 
     const passed = report.status === "passed";

@@ -595,3 +595,39 @@ need revisiting before seeding more services. Documented in ARCHITECTURE §13.
 302 tests, up from 291. Mutation-checked: reverting to a single scope fails
 twelve, including the golden fact block — the per-service checks are now load
 bearing for the primary result, not an optional extra.
+
+### Review finding 6 — 2026-09-10 · Claude Code (Opus 5)
+
+**P1: fixed-fee movement was treated as proof the fee was valid.** Reproduced:
+raising August's platform fee by $100 with the subscription untouched gave
+
+```
+STATE       completed | conf: high
+EXPLAINED   100%
+RECON       passed
+BLOCKERS    []
+INVOICE FEE 610000 vs SUBSCRIPTION: 600000
+VERDICT     true
+```
+
+The subtle part, and the thing I had wrong: the decomposition *correctly*
+labelled the movement a fixed-fee effect, which made it **explained** — and I was
+letting "explained" stand in for "valid". Attribution is not authorisation.
+`grep` confirmed nothing read the `subscriptions` table anywhere in the read
+path.
+
+Added a subscription repository and two boundaries:
+`fixed_fee_vs_subscription` compares each fixed line to the fee its subscription
+authorises, and `subscription_active_for_period` requires that subscription to be
+in force — so an ended subscription still billing fails, as does one that has not
+started. A subscription ending *inside* the period still passes, since it was
+legitimately billable for part of it.
+
+For R2 and D1, which PRD §13.5 makes illustrative flat charges with no
+authorising record, the honest answer was to name the limit rather than paper
+over it: reconciliation reports them in `unverifiedFixedCharges`, and completion
+blocks "appears correct" if such a charge *moved*. They do not fail the golden
+invoice merely for existing, because they are static there.
+
+315 tests, up from 302. Mutation-checked: removing the subscription comparison
+fails six, including the end-to-end unauthorised-fee case.

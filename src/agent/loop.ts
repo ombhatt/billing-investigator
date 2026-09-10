@@ -45,6 +45,7 @@ export function newInvestigation(
     comparisonPeriod: null,
     focusService,
     serviceEffects: [],
+    unverifiedFixedCharges: [],
     state: "created",
     clarificationQuestion: null,
     plan: initialPlan(),
@@ -289,6 +290,11 @@ async function callTool(
     plan: setStep(record.plan, id, "completed", summarise(tool, result.data)),
     evidence: [...record.evidence, ...result.evidence],
     serviceEffects: captureServiceEffects(record.serviceEffects, tool, result.data),
+    unverifiedFixedCharges: captureUnverifiedFixedCharges(
+      record.unverifiedFixedCharges,
+      tool,
+      result.data
+    ),
     facts: applyToolFacts(record.facts, tool, result.data, {
       changeDate: record.facts.change_date
     })
@@ -300,6 +306,23 @@ async function callTool(
  * so its per-service breakdown is kept rather than discarded. A metered service
  * is one with usage quantities; fixed-fee lines have none.
  */
+/**
+ * Fixed charges reconciliation could not authorise. R2 and D1 are illustrative
+ * flat charges in this dataset with no subscription behind them, so arithmetic
+ * consistency is all that can be said about them.
+ */
+function captureUnverifiedFixedCharges(
+  current: string[],
+  tool: string,
+  data: unknown
+): string[] {
+  if (tool !== "reconcile_invoice") return current;
+  const d = data as { unverifiedFixedCharges?: string[] };
+  return Array.isArray(d.unverifiedFixedCharges)
+    ? d.unverifiedFixedCharges
+    : current;
+}
+
 function captureServiceEffects(
   current: ServiceEffectSummary[],
   tool: string,
@@ -510,6 +533,14 @@ export async function runInvestigationTurn(
     facts: record.facts,
     completedTools,
     meteredServices: metered,
+    // Fixed charges with no authorising subscription can only be checked
+    // arithmetically, so movement in one cannot be called explained.
+    unverifiedFixedCharges: record.unverifiedFixedCharges,
+    fixedFeeMovementByService: Object.fromEntries(
+      record.serviceEffects
+        .filter((s) => !s.metered)
+        .map((s) => [s.serviceName, s.totalEffectCents])
+    ),
     failedTools
   });
 

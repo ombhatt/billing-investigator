@@ -68,6 +68,8 @@ export function assessCompletion(input: {
   facts: InvestigationFacts;
   completedTools: string[];
   meteredServices?: string[];
+  unverifiedFixedCharges?: string[];
+  fixedFeeMovementByService?: Record<string, number>;
   failedTools: string[];
 }): CompletionAssessment {
   const { facts, completedTools, failedTools, meteredServices = [] } = input;
@@ -106,6 +108,21 @@ export function assessCompletion(input: {
   } else if (explained < MIN_EXPLAINED_PERCENT) {
     blockers.push(
       `only ${explained.toFixed(2)}% of the variance is explained, below the ${MIN_EXPLAINED_PERCENT}% threshold`
+    );
+  }
+
+  // A fixed charge with no authorising record can only be checked for
+  // arithmetic consistency. If such a charge *moved*, "explained" would be
+  // standing in for "valid" — which is precisely how an unauthorised platform
+  // fee got reported as correct. Movement we cannot verify blocks the claim.
+  const unverifiableMovement = (input.unverifiedFixedCharges ?? []).filter(
+    (service) =>
+      (input.fixedFeeMovementByService ?? {})[service] !== undefined &&
+      input.fixedFeeMovementByService![service] !== 0
+  );
+  if (unverifiableMovement.length > 0) {
+    blockers.push(
+      `fixed charge changed with no authorising record: ${unverifiableMovement.join(", ")}`
     );
   }
 

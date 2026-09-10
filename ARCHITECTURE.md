@@ -505,3 +505,35 @@ third metered service would exceed the limit, and the loop would mark the
 remaining steps skipped and finish `unresolved` rather than assert something it
 had not checked. That is the correct failure direction, but the headroom is thin
 and PRD §10.6's limit would need revisiting before more services are seeded.
+
+---
+
+## 14. Addendum: a fixed fee is authorised by a subscription, not by an invoice
+
+Found in review after M5, alongside §9–§13.
+
+Raising August's platform fee by $100 while leaving its subscription untouched
+produced `completed`, **100% explained**, high confidence, no blockers. The
+invoice charged $6,100 for a fee authorised at $6,000.
+
+The mechanism is subtle and worth stating plainly. The decomposition *correctly*
+labelled the movement a fixed-fee effect, which made it **explained** — and
+"explained" was being read as **valid**. Attribution is not authorisation. No
+repository read the `subscriptions` table at all.
+
+**Now:** `fixed_fee_vs_subscription` compares each fixed line to the monthly fee
+its subscription authorises, and `subscription_active_for_period` requires that
+subscription to be in force for the period — so an ended subscription still
+billing, or one that has not started, fails.
+
+### Charges that cannot be verified are named
+
+R2 and D1 are illustrative flat charges in this dataset (PRD §13.5) with no
+subscription behind them. Rather than silently treating them as validated,
+reconciliation reports them in `unverifiedFixedCharges`, and completion blocks
+"appears correct" if such a charge **moved** between periods — movement that
+cannot be authorised must not be called explained.
+
+They do not fail the golden invoice merely for existing, since they are static
+there. The distinction is between *a charge we can check and did* and *a charge
+we cannot check and have said so about*.
