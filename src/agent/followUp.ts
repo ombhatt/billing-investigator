@@ -1,7 +1,8 @@
 import type { ModelClient } from "./modelClient.js";
 import { safeNarrative } from "./narrativeGuard.js";
+import { periodsMentioned } from "../domain/period.js";
 import { renderSummary } from "./summary.js";
-import type { InvestigationRecord } from "./types.js";
+import type { FinalSummary, InvestigationRecord } from "./types.js";
 
 /**
  * Answers a follow-up from evidence already persisted on the investigation.
@@ -34,6 +35,24 @@ export async function answerFollowUp(
     };
   }
 
+  const investigated = [record.currentPeriod, record.comparisonPeriod].filter(
+    (p): p is string => p !== null
+  );
+
+  // A question about a month this investigation never looked at cannot be
+  // answered from its evidence, and must not be answered from its conclusion.
+  // "What about June?" previously returned the August-versus-July summary
+  // verbatim, which reads as an answer and is not one.
+  const outside = periodsOutsideInvestigation(question, investigated);
+  if (outside.length > 0) {
+    return {
+      text:
+        `This investigation compared ${investigated.join(" and ")}, so I have no evidence for ` +
+        `${outside.join(" or ")}. Reset the demo and ask about ${outside[0]} to investigate it.`,
+      usedEvidenceCount: 0
+    };
+  }
+
   try {
     const prose = await model.explain({
       question,
@@ -46,7 +65,7 @@ export async function answerFollowUp(
     });
     // Follow-ups are held to the same boundary as the summary: a fabricated
     // figure is no less damaging for arriving in the second answer.
-    const narrative = safeNarrative(prose, renderSummary(record.summary), {
+    const narrative = safeNarrative(prose, unanswered(record.summary), {
       facts: record.facts,
       evidence: record.evidence,
       invoiceAppearsCorrect: record.summary.invoiceAppearsCorrect,
@@ -62,11 +81,50 @@ export async function answerFollowUp(
       };
     }
   } catch {
-    // Fall through to the persisted summary.
+    // Fall through to the labelled fallback below.
   }
 
   return {
-    text: renderSummary(record.summary),
+    text: unanswered(record.summary),
     usedEvidenceCount: record.evidence.length
   };
+}
+
+/**
+ * Periods a question asks about that the investigation did not cover.
+ *
+ * The year is taken from the investigated periods, because a follow-up saying
+ * "the month of June" means June of the year under investigation and naming no
+ * year is the normal way to ask. Where the investigation spans two years both
+ * are considered, so a month belonging to either is not reported as outside.
+ */
+function periodsOutsideInvestigation(
+  question: string,
+  investigated: string[]
+): string[] {
+  if (investigated.length === 0) return [];
+
+  const years = [...new Set(investigated.map((p) => Number(p.slice(0, 4))))];
+  const asked = new Set<string>();
+  for (const year of years) {
+    for (const period of periodsMentioned(question, year)) asked.add(period);
+  }
+
+  return [...asked].filter((p) => !investigated.includes(p)).sort();
+}
+
+/**
+ * The reply when the question could not be answered from the evidence.
+ *
+ * It must not be the summary alone. Returning `renderSummary` here meant a
+ * question the agent could not answer received the previous conclusion,
+ * formatted exactly like an answer — the reader has no way to tell the
+ * difference. Saying so first costs one sentence and removes the ambiguity.
+ */
+function unanswered(summary: FinalSummary): string {
+  return [
+    "I could not answer that from the evidence on record. Here is what this investigation established:",
+    "",
+    renderSummary(summary)
+  ].join("\n");
 }

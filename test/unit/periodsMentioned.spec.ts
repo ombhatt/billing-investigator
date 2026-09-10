@@ -61,3 +61,38 @@ describe("periodsMentioned", () => {
     expect(periodsMentioned("")).toEqual([]);
   });
 });
+
+describe("a bare month, resolved against a known year", () => {
+  it("reads a month named without a year when the year is supplied", () => {
+    // The user's exact wording. Without a year assumption this found nothing,
+    // so a follow-up about June was never recognised as out of scope.
+    expect(
+      periodsMentioned("what about their billing for the month of June?", 2026)
+    ).toEqual(["2026-06"]);
+  });
+
+  it("ignores bare months when no year is supplied", () => {
+    expect(periodsMentioned("what about the month of June?")).toEqual([]);
+  });
+
+  it("never reads a bare 'may' as a month, even with a year supplied", () => {
+    // "may" is a verb far more often than a month in this domain. Missing a
+    // genuine bare "may" is the cheaper mistake.
+    expect(periodsMentioned("this may indicate a deployment change", 2026)).toEqual([]);
+    expect(periodsMentioned("usage may have risen", 2026)).toEqual([]);
+    // Still found when the year is explicit.
+    expect(periodsMentioned("what about May 2026?", 2026)).toEqual(["2026-05"]);
+  });
+
+  it("prefers an explicit year over the assumed one", () => {
+    expect(periodsMentioned("June 2025 versus July", 2026).sort()).toEqual([
+      "2025-06",
+      "2026-06",
+      "2026-07"
+    ]);
+  });
+
+  it("still ignores a day inside a full date", () => {
+    expect(periodsMentioned("usage shifted on 2026-08-14", 2026)).toEqual([]);
+  });
+});

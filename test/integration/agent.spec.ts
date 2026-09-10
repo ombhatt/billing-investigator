@@ -601,13 +601,17 @@ describe("follow-up questions", () => {
     expect(zoneCard!.value).toContain("zone-api-acme");
   });
 
-  it("returns the persisted summary when synthesis fails", async () => {
+  it("says it could not answer before offering the summary as context", async () => {
+    // This previously returned `renderSummary` alone, formatted exactly like an
+    // answer, so a question the agent could not answer received the previous
+    // conclusion and nothing marked it as a non-answer.
     const working = new ScriptedModel();
     const record = await runInvestigationTurn(fresh(), QUESTION, deps(working));
 
     const broken = new ScriptedModel({ throwOn: "explain" });
     const followUp = await answerFollowUp(record, "Which zone?", broken);
 
+    expect(followUp.text).toMatch(/^I could not answer that/);
     expect(followUp.text).toContain("Finding.");
     expect(followUp.text).toContain("$21,720.00");
   });
@@ -662,5 +666,78 @@ describe("deterministic model client", () => {
     expect(record.state).toBe("completed");
     expect(record.facts.reconciliation_status).toBe("passed");
     expect(record.summary!.generatedBy).toBe("deterministic_fallback");
+  });
+});
+
+/**
+ * A question about a month the investigation never examined.
+ *
+ * Found by hand: after the golden August-versus-July run, "what about their
+ * billing for the month of June?" returned the August summary verbatim —
+ * Finding, Evidence, Assessment — as though it answered. It did not. The
+ * investigation had no June evidence at all.
+ *
+ * Two separate defects met here. The follow-up never checked whether the
+ * question was in scope; and the fallback for an unanswerable question was the
+ * previous conclusion, formatted identically to an answer. The narrative guard
+ * had done its job — prose about June was correctly rejected — and the fallback
+ * then undid the benefit.
+ */
+describe("a follow-up about an uninvestigated period", () => {
+  const golden = async () =>
+    await runInvestigationTurn(fresh(), QUESTION, deps(new ScriptedModel()));
+
+  it("declines the exact question that exposed this", async () => {
+    const record = await golden();
+    const followUp = await answerFollowUp(
+      record,
+      "what about their billing for the month of June?",
+      new ScriptedModel()
+    );
+
+    expect(followUp.text).toContain("2026-06");
+    expect(followUp.text).toContain("2026-08");
+    expect(followUp.text).toContain("2026-07");
+    // Emphatically not the previous conclusion dressed as an answer.
+    expect(followUp.text).not.toContain("Finding.");
+    expect(followUp.text).not.toContain("$21,720.00");
+    expect(followUp.usedEvidenceCount).toBe(0);
+  });
+
+  it("declines whether or not the year is spelled out", async () => {
+    const record = await golden();
+    for (const question of [
+      "what about June?",
+      "what about June 2026?",
+      "how does 2026-06 compare?"
+    ]) {
+      const followUp = await answerFollowUp(record, question, new ScriptedModel());
+      expect(followUp.text).toContain("2026-06");
+      expect(followUp.text).not.toContain("Finding.");
+    }
+  });
+
+  it("still answers questions about the periods it did investigate", async () => {
+    // The control: scoping must not swallow legitimate follow-ups.
+    const record = await golden();
+    for (const question of [
+      "Could the usage have been duplicated?",
+      "Which zone generated the increase?",
+      "How did August compare with July?"
+    ]) {
+      const followUp = await answerFollowUp(record, question, new ScriptedModel());
+      expect(followUp.text).not.toMatch(/no evidence for/);
+      expect(followUp.usedEvidenceCount).toBeGreaterThan(0);
+    }
+  });
+
+  it("is not tripped by the word 'may'", async () => {
+    const record = await golden();
+    const followUp = await answerFollowUp(
+      record,
+      "may the increase have been caused by a deployment?",
+      new ScriptedModel()
+    );
+    expect(followUp.text).not.toContain("no evidence for 2026-05");
   });
 });

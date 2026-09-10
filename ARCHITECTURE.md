@@ -783,3 +783,42 @@ to a question it does not address.
 `shareOfGrowthPercent` is null when usage did not grow, because a share of an
 increase is undefined when there was no increase, and it may exceed 100% when
 one zone grew while another shrank — the honest reading rather than a clamp.
+
+## 20. Addendum: a follow-up about a month that was never investigated
+
+Found by hand, not by review. After the golden August-versus-July run, "what
+about their billing for the month of June?" returned the August summary
+verbatim — Finding, Evidence, Assessment — as though it answered. It did not:
+the investigation held no June evidence at all.
+
+Two defects met.
+
+**The follow-up never checked scope.** It passed any question to the model with
+August's evidence attached. A question about a different period has no
+answer in that evidence, and the shape of the reply gave no hint of it.
+
+**The fallback was the previous conclusion.** `safeNarrative` and the `catch`
+both fell back to `renderSummary(record.summary)` — the earlier answer,
+formatted identically to a real one, with nothing marking it as a non-answer.
+
+The narrative guard had actually done its job: prose making claims about June
+was rejected by the `unknown_period` check added for finding 9. The fallback
+then undid the benefit, so a guard catching a fabrication produced a confidently
+misdirected reply instead. Catching a bad answer is only half of it; what
+replaces it has to be honest too.
+
+A follow-up naming a period outside the investigation is now declined by name,
+and every fallback says "I could not answer that from the evidence on record"
+before offering the conclusion as clearly labelled context.
+
+### Bare month names
+
+The user wrote "the month of June" — no year — and `periodsMentioned` required
+one, so the scope check would not have fired. In a follow-up the year is
+unambiguous: it comes from the periods under investigation. `periodsMentioned`
+now takes an optional `assumeYear` used only where that context exists.
+
+`may` is excluded from bare-month matching and recognised only with an explicit
+year. It is a verb far more often than a month here — "usage may have risen"
+must not become a period — and missing a genuine bare "may" is the cheaper
+mistake of the two.

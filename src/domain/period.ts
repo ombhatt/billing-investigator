@@ -65,6 +65,18 @@ const NAMED_MONTH = new RegExp(
 const BARE_PERIOD = /\b\d{4}-(?:0[1-9]|1[0-2])\b(?!-\d)/g;
 
 /**
+ * A month named with no year — "billing for the month of June".
+ *
+ * "may" is deliberately absent: it is a common verb, and reading "this may
+ * indicate" as a period would be worse than missing a genuine "may". It is
+ * still recognised when a year sits beside it, via NAMED_MONTH above.
+ */
+const BARE_MONTH = new RegExp(
+  `\\b(${MONTH_NAMES.filter((m) => m !== "may").join("|")})\\b`,
+  "gi"
+);
+
+/**
  * Every billing period a piece of text refers to, however it spells them.
  *
  * Used in two places that both learned the same lesson: a question naming a
@@ -72,15 +84,31 @@ const BARE_PERIOD = /\b\d{4}-(?:0[1-9]|1[0-2])\b(?!-\d)/g;
  * answered about a different month, and prose naming a month that was never
  * investigated is a fabricated claim even though no digit is wrong.
  */
-export function periodsMentioned(text: string): Period[] {
+export function periodsMentioned(
+  text: string,
+  /**
+   * Year to assume for a month named without one. Supply it only where the
+   * context makes the year unambiguous — a follow-up to an investigation of
+   * known periods. Omitted, a bare month is ignored rather than guessed.
+   */
+  assumeYear?: number
+): Period[] {
   const found = new Set<Period>();
+  const asPeriod = (year: string | number, month: number) =>
+    `${year}-${String(month).padStart(2, "0")}`;
 
   for (const match of text.matchAll(NAMED_MONTH)) {
-    const month = MONTH_NAMES.indexOf(match[1].toLowerCase()) + 1;
-    found.add(`${match[2]}-${String(month).padStart(2, "0")}`);
+    found.add(asPeriod(match[2], MONTH_NAMES.indexOf(match[1].toLowerCase()) + 1));
   }
   for (const match of text.match(BARE_PERIOD) ?? []) {
     found.add(match);
+  }
+  if (assumeYear !== undefined) {
+    for (const match of text.matchAll(BARE_MONTH)) {
+      found.add(
+        asPeriod(assumeYear, MONTH_NAMES.indexOf(match[1].toLowerCase()) + 1)
+      );
+    }
   }
 
   return [...found].sort();

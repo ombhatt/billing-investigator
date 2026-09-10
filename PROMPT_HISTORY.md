@@ -864,3 +864,30 @@ fails three, and collapsing growth share into period share — the exact confusi
 The README limitation is retired and replaced with the one that is actually
 true: follow-ups run no new tools, so a question needing genuinely new data is
 declined rather than answered.
+
+---
+
+### Found in manual testing — a follow-up about an uninvestigated month
+
+The user asked, after the golden run, "what about their billing for the month of
+June?" and received the August-versus-July summary verbatim, formatted exactly
+like an answer.
+
+Two defects. The follow-up never checked whether the question was in scope; and
+the fallback for an unanswerable question was `renderSummary` — the previous
+conclusion with nothing marking it as a non-answer.
+
+Notably the narrative guard worked: prose about June was rejected by the
+`unknown_period` check added for finding 9. The fallback then undid the benefit.
+A guard that catches a fabrication is only half the job — what replaces it has
+to be honest too, and returning the last good answer is the most tempting wrong
+choice available.
+
+The wording mattered too: "the month of June" carries no year, and
+`periodsMentioned` required one, so the scope check would not have fired on the
+question as actually asked. It now takes an optional year, supplied from the
+investigated periods where that context is unambiguous. `may` stays excluded
+from bare-month matching — it is a verb far more often than a month here.
+
+419 tests, up from 410. Mutation-checked: removing the scope check or the
+"could not answer" preamble fails three.
