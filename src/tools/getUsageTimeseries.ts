@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { rateUsage } from "../domain/rating.js";
+import { zoneGrowth, type ZoneGrowth } from "../domain/zoneGrowth.js";
 import { listPriceVersionsOverlapping } from "../repositories/pricingRepository.js";
 import { listDailyUsage } from "../repositories/usageRepository.js";
 import { createTool, NotFound } from "./createTool.js";
@@ -17,7 +18,10 @@ export const inputSchema = z.object({
   accountId: accountIdSchema,
   serviceName: serviceNameSchema.describe('Service name, e.g. "Workers"'),
   ...dateRangeFields,
-  zoneId: zoneIdSchema.optional().describe("Restrict to a single zone")
+  zoneId: zoneIdSchema.optional().describe("Restrict to a single zone"),
+  // Supplied by the server from the investigation record, never by the model.
+  comparisonStartDate: dateRangeFields.startDate.optional(),
+  comparisonEndDate: dateRangeFields.endDate.optional()
 });
 
 export interface UsageTimeseries {
@@ -30,14 +34,40 @@ export interface UsageTimeseries {
   totalQuantity: number;
   contractedCostCents: number | null;
   zones: { zoneId: string; quantity: number }[];
+  /** Per-zone movement against the comparison period, when one was given. */
+  zoneGrowth: ZoneGrowth[] | null;
 }
 
 export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries>(
   TOOL_NAME,
   inputSchema,
-  async ({ accountId, serviceName, startDate, endDate, zoneId }, deps) => {
+  async (
+    {
+      accountId,
+      serviceName,
+      startDate,
+      endDate,
+      zoneId,
+      comparisonStartDate,
+      comparisonEndDate
+    },
+    deps
+  ) => {
     const range = assertDateRange(startDate, endDate);
     if (!range.ok) throw new NotFound("INVALID_DATE_RANGE", range.message);
+
+    if (comparisonStartDate || comparisonEndDate) {
+      if (!comparisonStartDate || !comparisonEndDate) {
+        throw new NotFound(
+          "INVALID_DATE_RANGE",
+          "A comparison window needs both a start and an end date."
+        );
+      }
+      const comparisonRange = assertDateRange(comparisonStartDate, comparisonEndDate);
+      if (!comparisonRange.ok) {
+        throw new NotFound("INVALID_DATE_RANGE", comparisonRange.message);
+      }
+    }
 
     const rows = await listDailyUsage(
       deps.db,
@@ -59,7 +89,8 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
           points: [],
           totalQuantity: 0,
           contractedCostCents: null,
-          zones: []
+          zones: [],
+          zoneGrowth: null
         },
         sourceRecordIds: [],
         evidence: [
@@ -109,6 +140,30 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
           }).amountCents
         : null;
 
+    // A second read inside the same call, not a second tool call: the growth
+    // question is required (PRD §7.4) and follow-ups answer from persisted
+    // evidence, so the comparison has to exist by the time the plan finishes.
+    const currentZones = [...byZone.entries()].map(([id, quantity]) => ({
+      zoneId: id,
+      quantity
+    }));
+
+    let growth: ZoneGrowth[] | null = null;
+    if (comparisonStartDate && comparisonEndDate) {
+      const comparisonRows = await listDailyUsage(
+        deps.db,
+        accountId,
+        serviceName,
+        comparisonStartDate,
+        comparisonEndDate,
+        zoneId
+      );
+      growth = zoneGrowth(
+        currentZones,
+        comparisonRows.map((r) => ({ zoneId: r.zoneId, quantity: r.quantity }))
+      );
+    }
+
     return {
       data: {
         serviceName,
@@ -119,9 +174,8 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
         points,
         totalQuantity,
         contractedCostCents,
-        zones: [...byZone.entries()]
-          .map(([id, quantity]) => ({ zoneId: id, quantity }))
-          .sort((a, b) => b.quantity - a.quantity)
+        zones: [...currentZones].sort((a, b) => b.quantity - a.quantity),
+        zoneGrowth: growth
       },
       sourceRecordIds: rows.map(
         (r) => `daily_usage:${r.serviceName}:${r.zoneId}:${r.usageDate}`
@@ -135,8 +189,6 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
           period: `${startDate} to ${endDate}`,
           status: "confirmed" as const
         },
-        // "Which zone generated the increase?" is a required follow-up
-        // (PRD §7.4), and it is unanswerable from the total alone.
         {
           label: `${serviceName} usage by zone`,
           value: [...byZone.entries()]
@@ -150,14 +202,46 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
           recordIds: [...byZone.keys()].map((id) => `zones:${id}`),
           period: `${startDate} to ${endDate}`,
           status: "confirmed" as const
-        }
+        },
+        // "Which zone generated the increase?" is a required follow-up
+        // (PRD §7.4) and the card above cannot answer it: a share of the
+        // period is not a share of the change. Both are kept, worded so they
+        // cannot be mistaken for one another.
+        ...(growth
+          ? [
+              {
+                label: `${serviceName} growth by zone`,
+                value: growth
+                  .map(
+                    (z) =>
+                      `${z.zoneId}: ${z.comparisonQuantity.toLocaleString("en-US")} to ` +
+                      `${z.currentQuantity.toLocaleString("en-US")} ${rows[0].unit} ` +
+                      `(${z.deltaQuantity >= 0 ? "+" : ""}${z.deltaQuantity.toLocaleString("en-US")}` +
+                      (z.shareOfGrowthPercent === null
+                        ? ")"
+                        : `, ${z.shareOfGrowthPercent.toFixed(1)}% of the increase)`)
+                  )
+                  .join("; "),
+                source: TOOL_NAME,
+                recordIds: growth.map((z) => `zones:${z.zoneId}`),
+                period: `${comparisonStartDate} to ${endDate}`,
+                status: "confirmed" as const
+              }
+            ]
+          : [])
       ],
-      dataLimitations:
-        contractedCostCents === null && prices.length !== 1
+      dataLimitations: [
+        ...(contractedCostCents === null && prices.length !== 1
           ? [
               `${prices.length} price versions overlap this window, so a single contracted cost is not defined.`
             ]
-          : []
+          : []),
+        ...(growth
+          ? []
+          : [
+              "Zone growth was not computed: no comparison period was supplied, so this shows the period's distribution only, not which zone drove any change."
+            ])
+      ]
     };
   }
 );

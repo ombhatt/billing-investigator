@@ -116,3 +116,41 @@ describe("golden investigation through the agent", () => {
     expect(record.metrics.completedAt).not.toBeNull();
   });
 });
+
+/**
+ * PRD §7.4 requires "which zone generated the increase?" to be answerable, and
+ * follow-ups run no tools — so the comparison must be on the record when the
+ * investigation ends. It previously was not: only August's zone totals were
+ * persisted, and the primary zone's 83% share of the period is the answer to a
+ * different question than its 96% share of the growth.
+ */
+describe("the zone-growth follow-up has evidence to answer from", () => {
+  it("persists a per-zone comparison, not only the period distribution", async () => {
+    const record = await runGolden();
+
+    const growth = record.evidence.find((c) => /growth by zone/.test(c.label));
+    expect(growth).toBeDefined();
+    expect(growth!.source).toBe("get_usage_timeseries");
+    expect(growth!.status).toBe("confirmed");
+    expect(growth!.value).toContain("zone-api-acme");
+    expect(growth!.value).toContain("% of the increase");
+  });
+
+  it("carries the growth share, which differs from the period share", async () => {
+    const record = await runGolden();
+    const text = record.evidence.map((c) => `${c.label} ${c.value}`).join(" ");
+
+    // Both numbers present, and distinguishable by their wording.
+    expect(text).toMatch(/96\.0% of the increase|95\.9% of the increase/);
+    expect(text).toContain("83%");
+  });
+
+  it("gives the model the figure rather than a share to guess from", async () => {
+    const record = await runGolden();
+    const growth = record.evidence.find((c) => /growth by zone/.test(c.label))!;
+
+    // The absolute movement is there too, so the answer need not be a percentage.
+    expect(growth.value).toContain("556,595,994");
+    expect(growth.recordIds).toContain("zones:zone-api-acme");
+  });
+});

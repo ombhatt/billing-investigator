@@ -452,3 +452,74 @@ describe("detect_usage_change_point on a month that did not change", () => {
     expect(result.evidence[0].status).toBe("confirmed");
   });
 });
+
+/**
+ * The evidence a follow-up needs must exist when the follow-up runs.
+ *
+ * "Which zone generated the increase?" is required by PRD §7.4 and follow-ups
+ * run no tools, so the per-zone comparison has to be persisted during the
+ * investigation. Previously only August's zone totals were, and the nearest
+ * available number — the primary zone's 83% share of the period — is not the
+ * answer to the question asked.
+ */
+describe("get_usage_timeseries persists zone growth, not just zone share", () => {
+  const august = {
+    accountId: "abc123",
+    serviceName: "Workers",
+    startDate: "2026-08-01",
+    endDate: "2026-08-31"
+  };
+
+  it("computes growth against the comparison period", async () => {
+    const result = await TOOL_HANDLERS.get_usage_timeseries(
+      { ...august, comparisonStartDate: "2026-07-01", comparisonEndDate: "2026-07-31" },
+      deps
+    );
+    if ("error" in result) throw new Error(result.error.code);
+
+    const data = result.data as {
+      zoneGrowth: { zoneId: string; deltaQuantity: number; shareOfGrowthPercent: number | null }[] | null;
+    };
+    expect(data.zoneGrowth).not.toBeNull();
+    expect(data.zoneGrowth![0].zoneId).toBe("zone-api-acme");
+    expect(data.zoneGrowth![0].deltaQuantity).toBe(556_595_994);
+    expect(data.zoneGrowth![0].shareOfGrowthPercent!).toBeCloseTo(95.96, 1);
+  });
+
+  it("emits it as evidence a follow-up can read", async () => {
+    const result = await TOOL_HANDLERS.get_usage_timeseries(
+      { ...august, comparisonStartDate: "2026-07-01", comparisonEndDate: "2026-07-31" },
+      deps
+    );
+    if ("error" in result) throw new Error(result.error.code);
+
+    const card = result.evidence.find((c) => /growth by zone/.test(c.label));
+    expect(card).toBeDefined();
+    expect(card!.status).toBe("confirmed");
+    expect(card!.value).toContain("zone-api-acme");
+    expect(card!.value).toContain("% of the increase");
+    expect(card!.recordIds).toContain("zones:zone-api-acme");
+
+    // The period-share card still exists and still says something different.
+    const share = result.evidence.find((c) => c.label.endsWith("usage by zone"));
+    expect(share!.value).toContain("83%");
+    expect(share!.value).not.toContain("% of the increase");
+  });
+
+  it("says so plainly when no comparison window was given", async () => {
+    const result = await TOOL_HANDLERS.get_usage_timeseries(august, deps);
+    if ("error" in result) throw new Error(result.error.code);
+
+    expect((result.data as { zoneGrowth: unknown }).zoneGrowth).toBeNull();
+    expect(result.evidence.some((c) => /growth by zone/.test(c.label))).toBe(false);
+    expect(result.dataLimitations.join(" ")).toContain("not which zone drove any change");
+  });
+
+  it("rejects half a comparison window", async () => {
+    const result = await TOOL_HANDLERS.get_usage_timeseries(
+      { ...august, comparisonStartDate: "2026-07-01" },
+      deps
+    );
+    expect("error" in result).toBe(true);
+  });
+});

@@ -829,3 +829,38 @@ August 14 change point satisfies.
 
 Also rewrote CLAUDE.md rules 21, 23, 25 and 26 to carry findings 9 and 10 while
 staying inside the 150-line limit from PROMPT 1 — now 149.
+
+---
+
+### Review finding 11 (P1) — the zone-growth follow-up lacked comparative evidence
+
+> "Which zone generated the increase?" can only be answered by guessing from
+> August's distribution or admitting insufficient evidence.
+
+Correct, and this one I had already half-seen: `README.md` carried it as a known
+limitation ("answered approximately") rather than a defect. Review was right
+that a required PRD §7.4 follow-up answered with the wrong quantity is a defect,
+not a caveat. Approximately-right was doing a lot of work in that sentence: 83%
+of the period and 96% of the growth are answers to different questions that
+happen to sit near each other in this dataset.
+
+Of the two routes offered I took the first, persisting the comparison, because
+it keeps the arithmetic in `src/domain/` where it is provable in plain Node, puts
+the figure on the record before any follow-up is asked, and lets follow-ups keep
+their guarantee of running no tools. `get_usage_timeseries` takes an optional
+comparison window from the server — never from the model — and does a second
+read inside the same call: one extra query, not one extra tool call, so the
+budget is untouched and the golden path still runs eleven.
+
+The exact figures from review reproduce: +556,595,994 of 580,000,000, or 95.96%,
+against an 82.70% share of August. Both are asserted, plus the case that proves
+they are different questions — the largest zone by volume contributing zero
+growth.
+
+410 tests, up from 394. Mutation-checked twice: dropping the comparison window
+fails three, and collapsing growth share into period share — the exact confusion
+— fails seven. Golden facts unchanged.
+
+The README limitation is retired and replaced with the one that is actually
+true: follow-ups run no new tools, so a question needing genuinely new data is
+declined rather than answered.

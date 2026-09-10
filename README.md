@@ -193,8 +193,10 @@ charts, AI Gateway, Workflows, Vectorize, R2, authentication, RBAC, multi-tenanc
   routing layer.
 - Once an investigation completes, later questions are treated as follow-ups.
   Starting a new investigation requires **Reset demo**.
-- `get_usage_timeseries` reports the zone split of a period's usage, not of the
-  *increase*. "Which zone grew?" is therefore answered approximately.
+- Follow-ups run no new tools. PRD §7.4 allows a re-call for different
+  granularity; instead the evidence is made sufficient during the investigation,
+  so a question needing genuinely new data would be declined rather than
+  answered.
 - Token-level streaming is not used: the Workers AI provider corrupts streamed
   tool-call arguments at the pinned versions. See `docs/BUILD_STATUS.md`.
 

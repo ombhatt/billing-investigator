@@ -744,3 +744,42 @@ The shape is the one rule 21 already names, in a new place: a value that exists
 is not a value that means something. The flat-series test that already existed
 checked `material` and stopped there, never asking what the layers above did
 with a date they should never have been given.
+
+## 19. Addendum: a share of the period is not a share of the growth
+
+PRD §7.4 lists "which zone generated the increase?" among the follow-ups the
+agent must answer, and follow-ups run no new tools. The persisted evidence held
+August's zone totals only, so the nearest available number was the primary
+zone's **83% share of the period** — and the answer to the question asked is its
+**96% share of the growth**. The model could restate the wrong quantity or admit
+it had nothing; there was no third option.
+
+The two figures are close here, which is what let the confusion survive. They
+are not close in general: a zone can hold most of a period's volume and
+contribute nothing at all to the change. A test asserts exactly that case.
+
+```
+zone-api-acme   749,999,619 → 1,306,595,613   (+556,595,994, 96.0% of the increase)
+zone-web-acme   250,000,381 →   273,404,387   (+23,404,006,   4.0% of the increase)
+```
+
+Review offered two routes: persist the comparison, or allow a bounded extra read
+at follow-up time. Persisting is the better fit here. The arithmetic stays in
+`src/domain/zoneGrowth.ts` where it is provable in plain Node; the figure is on
+the record before any follow-up is asked, so it is evidence rather than a
+late derivation; and follow-ups keep their guarantee of costing nothing.
+
+`get_usage_timeseries` now takes an optional comparison window — supplied by the
+server from the investigation record, never by the model — and does a second
+read inside the same call. That is one extra query, not one extra tool call, so
+the 12-call budget is untouched and the golden path still runs eleven.
+
+Both cards are emitted, worded so they cannot be mistaken for each other:
+`usage by zone` for the period distribution, `growth by zone` for the movement.
+Where no comparison window is given, the growth card is absent and a data
+limitation says so rather than leaving the period share to be read as an answer
+to a question it does not address.
+
+`shareOfGrowthPercent` is null when usage did not grow, because a share of an
+increase is undefined when there was no increase, and it may exceed 100% when
+one zone grew while another shrank — the honest reading rather than a clamp.

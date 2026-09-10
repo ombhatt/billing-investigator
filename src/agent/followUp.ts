@@ -6,11 +6,21 @@ import type { InvestigationRecord } from "./types.js";
 /**
  * Answers a follow-up from evidence already persisted on the investigation.
  *
- * P0 deliberately runs no new tools here: every question in PRD §7.4 is
- * answerable from the evidence the first turn gathered, and re-running a tool
- * would spend budget to re-derive a fact already on the record. If the evidence
- * genuinely does not cover the question, the answer says so rather than
- * guessing.
+ * P0 runs no new tools here. PRD §7.4 permits a re-call when different
+ * granularity is needed, and the honest reading of that permission is that the
+ * evidence should have been sufficient in the first place — so the sufficiency
+ * is arranged during the investigation rather than repaired afterwards.
+ *
+ * Review showed the claim was not true as written. "Which zone generated the
+ * increase?" is required by §7.4, and the persisted evidence held August's zone
+ * totals only: the primary zone's 83% share of the period was the nearest
+ * available number and it is not the answer — that zone drove 96% of the
+ * growth. The model could only guess or decline. `get_usage_timeseries` now
+ * computes the per-zone comparison during the investigation, so the follow-up
+ * reads a figure rather than inferring one.
+ *
+ * If the evidence genuinely does not cover a question, the answer says so
+ * rather than guessing.
  */
 export async function answerFollowUp(
   record: InvestigationRecord,

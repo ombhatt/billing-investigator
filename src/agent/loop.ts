@@ -171,7 +171,18 @@ function inputFor(
     case "decompose_variance":
       return { accountId, currentPeriod, comparisonPeriod };
     // Scoped to the driver: these locate when and where consumption moved.
+    // The timeseries also carries the comparison window, because "which zone
+    // generated the increase?" is a required follow-up and follow-ups answer
+    // from persisted evidence — the comparison has to be on record by then.
     case "get_usage_timeseries":
+      return {
+        accountId,
+        serviceName: focusService,
+        startDate: from,
+        endDate: to,
+        comparisonStartDate: periodStart(comparisonPeriod),
+        comparisonEndDate: periodEnd(comparisonPeriod)
+      };
     case "detect_usage_change_point":
       return { accountId, serviceName: focusService, startDate: from, endDate: to };
     // Run per metered service, since the conclusion is invoice-wide.
