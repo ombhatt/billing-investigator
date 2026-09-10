@@ -1,53 +1,3 @@
-PROMT1 -> Claude
-Read docs/PRD.md completely.
-
-Do not implement anything yet.
-
-Create docs/BUILD_PLAN.md that reduces the PRD to the smallest credible P0 build.
-
-Requirements:
-1. Use only the golden account abc123 and the invoice_variance case.
-2. Divide implementation into five independently verifiable milestones.
-3. For each milestone, list:
-   - files/components to create
-   - acceptance criteria covered
-   - tests that must pass
-   - manual verification step
-4. Identify current Cloudflare SDK/API uncertainties that need a technical spike.
-5. Explicitly exclude P1 and P2 functionality.
-6. Do not use Workflows, R2, Vectorize, AI Gateway, authentication, or additional accounts in P0.
-7. Create a concise CLAUDE.md/AGENTS.md containing permanent project rules, commands, architecture boundaries, and definition of done. Keep it under 150 lines.
-8. Create docs/BUILD_STATUS.md with the milestones initially marked pending.
-
-Stop after creating and presenting the plan. Do not scaffold the application.
-
-PROMT2 -> Claude
-
-Implement Milestone 1 from docs/BUILD_PLAN.md: the platform smoke test only.
-
-Objectives:
-1. Scaffold the current Cloudflare Agents starter.
-2. Configure:
-   - Workers AI binding
-   - @cf/meta/llama-3.3-70b-instruct-fp8-fast
-   - Agents SDK/Durable Object session
-   - D1 binding
-3. Add one D1 migration containing only an accounts table.
-4. Seed synthetic account abc123 / Acme Corp.
-5. Add one read-only tool, get_account_context.
-6. Build a minimal chat page that can answer:
-   “What account am I investigating?”
-7. Persist the conversation across a browser refresh.
-8. Add one tool contract test.
-9. Run typecheck, lint, tests, and local build.
-
-Do not implement invoice calculations, the full agent playbook, or the final UI.
-
-Update docs/BUILD_STATUS.md and PROMPT_HISTORY.md.
-Stop when the smoke test works or report the exact blocker.
-
----
-
 ## Outcomes
 
 ### PROMPT 1 — 2026-09-09 · Claude Code (Opus 5)
@@ -371,3 +321,70 @@ investigation, and the loop rejects a terminal record with a message saying what
 to do instead. Two regression tests. Redeployed and verified the exact reported
 flow — Reset, then ask — now produces nine tool steps and the full summary.
 
+
+PROMT6 -> Claude
+
+Implement Milestone 5: production-quality demo interface and deployment readiness.
+
+Build the P0 user experience from docs/PRD.md:
+1. Synthetic-data disclosure.
+2. abc123 account header.
+3. Suggested golden prompt.
+4. Two-column desktop layout.
+5. Conversation panel.
+6. Plan, Evidence, and Summary tabs.
+7. Visible step status without chain-of-thought.
+8. Evidence cards with source IDs and confirmed/correlated status.
+9. Loading, retry, unresolved, and failure states.
+10. Persistent refresh behavior.
+11. Reset Demo action that does not mutate seed data.
+12. Responsive and keyboard-accessible behavior.
+
+Do not add P1 accounts or new functionality.
+
+After implementation:
+- run tests, lint, typecheck, and production build
+- inspect for secrets
+- complete README.md
+- complete ARCHITECTURE.md
+- update PROMPT_HISTORY.md
+- provide exact local and Cloudflare deployment commands
+
+### PROMPT 6 — 2026-09-09 · Claude Code (Opus 5)
+
+Milestone 5 complete; P0 done. 233 tests, typecheck, lint and production build
+all green. Secret scan clean across source, tests, config and the built bundle.
+
+Replaced the single-column placeholder with composed components under `src/ui/`:
+masthead, account header, conversation, and an `InvestigationPanel` holding the
+Plan / Evidence / Summary tabs. Added `GET /api/accounts/:id` so the account
+header can render before any investigation runs.
+
+The panel reads the investigation record straight off the Durable Object's
+synced state, so plan steps, evidence cards and the summary all restore on
+refresh with no extra plumbing. The tab follows the investigation automatically
+but stops doing so the moment the reader picks a tab themselves.
+
+Verified in a browser rather than reasoned about:
+
+- two-column ratio measured at `745.797px / 610.203px` (≈55/45), no horizontal
+  overflow; `@media (max-width: 940px)` stacks to one column; dark-mode and
+  reduced-motion rules both present
+- tablist has a label, roving tabindex, `aria-selected` and `aria-controls`, and
+  a labelled panel; ArrowRight moved Plan→Evidence and End→Summary with focus
+  and selection staying in sync
+- refresh restored the conversation, both tab counts and the full summary
+- **Reset demo vs seed data**: captured row counts, invoice totals and total
+  usage quantity from D1 before and after. Identical — 4,508 events, 276 daily
+  rows, 15 lines, 5,535,500 cents, 3,572,500,000 units. This is PRD §20.5 step 9
+  and it now has evidence rather than an assertion.
+
+Status is never carried by colour alone: every badge pairs a distinct glyph with
+its label, which covers both PRD §8.4 and §21.
+
+Wrote `README.md` (purpose, the LLM-plans/code-calculates decision as a table of
+enforced guarantees, prerequisites including the Workers AI remote-only caveat,
+exact local and deploy commands, the demo and its expected figures, scope and
+known limitations) and `ARCHITECTURE.md` (component diagram, agent loop, the
+model seam and why it exists, state machine, data lineage, tool-security
+boundary, state ownership, failure-mode table, tradeoffs, production evolution).

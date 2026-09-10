@@ -9,6 +9,7 @@ import { renderSummary } from "./agent/summary.js";
 import { isTerminal } from "./agent/stateMachine.js";
 import type { InvestigationRecord } from "./agent/types.js";
 import { WorkersAiModelClient } from "./agent/workersAiClient.js";
+import { getAccountContext } from "./tools/getAccountContext.js";
 import { ToolRunner } from "./tools/registry.js";
 
 /**
@@ -155,11 +156,43 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
   }
 }
 
+/** PRD §16 error shape. Never carries a stack trace or a raw database error. */
+function errorResponse(
+  code: string,
+  message: string,
+  status: number
+): Response {
+  return Response.json(
+    { error: { code, message, retryable: status >= 500 } },
+    { status }
+  );
+}
+
 export default {
   async fetch(request: Request, env: Env) {
+    const url = new URL(request.url);
+
+    // Account header data, needed before any investigation has run.
+    const accountMatch = url.pathname.match(/^\/api\/accounts\/([^/]+)$/);
+    if (accountMatch) {
+      const result = await getAccountContext(
+        { accountId: decodeURIComponent(accountMatch[1]) },
+        { db: env.DB, investigationAccountId: INVESTIGATION_ACCOUNT_ID }
+      );
+      if ("error" in result) {
+        const status =
+          result.error.code === "ACCOUNT_NOT_FOUND" ||
+          result.error.code === "ACCOUNT_SCOPE_VIOLATION"
+            ? 404
+            : 400;
+        return errorResponse(result.error.code, result.error.message, status);
+      }
+      return Response.json(result.data);
+    }
+
     return (
       (await routeAgentRequest(request, env)) ||
-      new Response("Not found", { status: 404 })
+      errorResponse("NOT_FOUND", "No such route.", 404)
     );
   }
 } satisfies ExportedHandler<Env>;

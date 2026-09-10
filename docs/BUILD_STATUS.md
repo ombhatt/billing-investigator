@@ -4,7 +4,7 @@ Tracks execution of `docs/BUILD_PLAN.md`. Update this file as part of every mile
 change — a stale status file is a defect.
 
 **Last updated:** 2026-09-09
-**Phase:** Milestones 1-4 complete. Milestone 5 (UI and submission) not started.
+**Phase:** All five milestones complete. P0 done.
 
 **Deployed:** https://billing-investigator.om-bhatt.workers.dev
 
@@ -20,7 +20,7 @@ change — a stale status file is a defect.
 | 2 | Deterministic domain engine | `complete` | All PRD §20.4 facts computed in pure TypeScript, no LLM |
 | 3 | Tool layer | `complete` | Golden investigation runs end to end through 9 tools, no model |
 | 4 | Agent | `complete` | Agent cannot declare correctness without reconciliation or call unknown tools |
-| 5 | UI and submission | `pending` | Manual golden flow passes on the deployed URL and survives refresh |
+| 5 | UI and submission | `complete` | Manual golden flow passes on the deployed URL and survives refresh |
 
 ---
 
@@ -333,6 +333,42 @@ Each service's monthly charge is rounded to the nearest cent, half up, before
 any summation (PRD §12.2). `rateCents` does the multiply in `BigInt` and rounds
 with integer arithmetic only, so no currency value ever passes through a float.
 
+---
+
+## Milestone 5 — demo interface and deployment readiness
+
+Complete. 233 tests; typecheck, lint and build green. Verified in a browser.
+
+**UI** (`src/ui/`): masthead with synthetic badge, connection state and Reset
+demo; account header (id, name, plan, currency, tax, primary zone, invoices,
+from `GET /api/accounts/:id`); two-column 55/45 layout; conversation with
+friendly step names; Plan / Evidence / Summary tabs.
+
+- **Plan** — every playbook step with status, the tool that ran, whether it was
+  required, and a one-line factual outcome. Plus hypothesis states. No model
+  reasoning is persisted, so there is nothing here that could leak it.
+- **Evidence** — cards carrying all six PRD §8.3 fields: label, value, source
+  tool, record IDs, period, status.
+- **Summary** — verdict, confidence badge, fact grid, evidence, assessment,
+  outstanding blockers, next step, and whether the wording came from the model
+  or the deterministic fallback.
+
+**Verified in the browser, not only reasoned about:**
+
+| Check | Result |
+|---|---|
+| Two-column ratio at 1440px | `745.797px 610.203px` ≈ 55/45 |
+| Horizontal overflow | none |
+| Narrow breakpoint | `@media (max-width: 940px)` stacks to `1fr` |
+| Dark mode / reduced motion | both media rules present |
+| Tablist ARIA | labelled, roving tabindex, `aria-selected`, `aria-controls`, labelled panel |
+| Keyboard | ArrowRight Plan→Evidence, End→Summary; focus and selection stay in sync |
+| Refresh | plan, evidence, summary and tab counts all restored |
+| Reset demo vs seed data | row counts, invoice totals and total quantity **identical** before and after |
+
+**Docs:** `README.md` and `ARCHITECTURE.md` written; exact local and Cloudflare
+deployment commands included in both the README and the final report.
+
 ### Known gaps carried into later milestones
 
 - ~~The model infers `abc123` from a `.describe()` example.~~ Resolved in M4: the
@@ -355,3 +391,5 @@ with integer arithmetic only, so no currency value ever passes through a float.
 | 2026-09-09 | M2 complete. Full P0 schema, reproducible seed, eight domain modules, 109 tests. Every PRD §20.4 fact computed with no LLM. Change-point detection needed a documented onset rule to land on Aug 14 uniquely. |
 | 2026-09-09 | M3 complete. Five repositories, nine tools, allowlist + caching runner, 195 tests. Golden block re-proven through D1 and asserted identical to the domain path. Model tool surface left at one tool until M4's bounded loop exists. |
 | 2026-09-09 | M4 complete. Bounded agent behind a three-method ModelClient seam, state machine, server-side completion, deterministic confidence, 231 tests. Verified live; live runs exposed two defects the mocks could not (model authoring its own assessment, follow-ups reusing the summary prompt). |
+| 2026-09-09 | M4 deployed to production. User reported questions returning no plan or summary; root cause was `clearHistory()` not clearing the investigation record, so Reset could not start a new case. Fixed, redeployed, 233 tests. |
+| 2026-09-09 | M5 complete. Two-column UI with Plan/Evidence/Summary tabs, account header endpoint, full state handling, README and ARCHITECTURE. Layout, keyboard, refresh and Reset-vs-seed-data all verified in a browser. P0 done. |
