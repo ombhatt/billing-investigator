@@ -428,3 +428,51 @@ Two things worth recording:
 Also verified manually in the browser: the forged frame is rejected, `FORGED`
 appears nowhere in another client's DOM, and Reset still clears both the
 conversation and the record. 240 tests; typecheck, lint and build green.
+
+### Review finding 2 — 2026-09-09 · Claude Code (Opus 5)
+
+**P0: reconciliation could pass without verifying the billing pipeline.**
+Reproduced every claim before fixing, and found four more.
+
+A probe against the seeded dataset returned `passed` for all of these:
+
+| Case | Old result |
+|---|---|
+| rated-charge `amountCents` set to 1 | passed |
+| **all usage, daily usage and rated charges removed** | **passed, 1 checkpoint** |
+| `subtotalCents` set to 1 | passed |
+| `priceVersionId` corrupted | passed |
+| `billableQuantity`/`includedQuantity` corrupted | passed |
+| usage line unlinked from its rated charge | passed |
+| orphan rated charge for a service with no usage | passed |
+
+The second is the serious one: an invoice certified correct with nothing behind
+it. The per-service loop was enumerated from raw and daily usage, so with those
+gone it ran zero times and only the invoice-total check remained — which tied
+out, because the invoice was intact. That made "never claim correctness without
+reconciliation" hollow in precisely the case it exists for.
+
+The other cause: the boundary named `rated_charge_vs_invoice_line` actually
+compared *recomputed* cost to the invoice line, so the stored rated charge was
+never examined at all, and `subtotalCents` was never read.
+
+Rewrote it around one rule: **reconciliation must fail when a stage is absent,
+not only when two present stages disagree.** Services are now enumerated across
+all four stages, and each stage is verified independently — raw → daily, daily →
+rated quantity, the charge's own billable arithmetic, the price version it
+cites, recomputation → stored charge, stored charge → line, line linkage, lines
+→ subtotal, subtotal → total. Ten boundary types, eighteen checkpoints on the
+golden scenario, all at zero.
+
+Fixed-fee lines (Platform fee, R2, D1) are exempt from stage coverage — they
+legitimately have a line and no usage pipeline — but their amounts still have to
+tie into the subtotal. A test covers both halves, because getting that wrong
+would either fail the golden path or leave a hole.
+
+PRD §12.9's four required boundaries all remain; the six additions are strictly
+stronger. 22 new tests in `test/unit/reconciliationDefects.spec.ts`, each
+corrupting or removing exactly one thing and asserting the specific boundary
+that should notice. Golden facts unchanged across all three paths.
+
+263 tests, up from 240. Only one existing test needed changing: it asserted the
+boundary set was *exactly* the four required ones.

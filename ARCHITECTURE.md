@@ -157,14 +157,21 @@ boundary is **recomputed from its inputs** and compared to what is stored, so a
 rated charge that disagrees with its own price version is caught.
 
 ```
-raw usage sum            vs  daily aggregate      (quantity)
-daily aggregate          vs  rated quantity       (quantity)
-recomputed rated charge  vs  invoice line         (cents)
-invoice components       vs  invoice total        (cents)
+stage_coverage                     every metered service present at all 4 stages
+raw usage sum            vs  daily aggregate         (quantity)
+daily aggregate          vs  rated quantity          (quantity)
+rated_charge_internal_consistency  billable = max(0, consumed − included)
+rated_charge_price_version         charge cites the version in force
+recomputed charge        vs  stored rated charge     (cents)
+stored rated charge      vs  invoice line            (cents)
+invoice_line_linkage               each usage line references a real charge
+invoice lines            vs  invoice subtotal        (cents)
+invoice components       vs  invoice total           (cents)
 ```
 
-Zero tolerance — a one-cent gap fails. Four tests inject exactly those defects
-and assert each is caught.
+Zero tolerance — a one-cent gap fails. Six of these were added after review; see
+§10. Twenty-two tests corrupt or remove one thing each and assert the specific
+boundary that should notice it does.
 
 ---
 
@@ -325,3 +332,41 @@ client, which required that write channel to be open.
 The general rule this is an instance of: **state a client can write is not
 evidence.** Anything the product asserts as fact must be computed server-side
 and must not be reachable through a client-writable channel.
+
+---
+
+## 10. Addendum: reconciliation could pass on a broken pipeline
+
+Found in review after M5, alongside §9.
+
+The original implementation enumerated services from raw and daily usage only,
+then compared *recomputed* cost straight to the invoice line. Two consequences,
+both reproduced before fixing:
+
+- **With every usage row and rated charge deleted, it returned `passed`** with a
+  single checkpoint. The per-service loop had nothing to iterate, so only the
+  invoice-total check ran — and that tied out, because the invoice was intact.
+  An invoice was certified correct with nothing behind it.
+- **The stored rated charge was never examined.** Recomputation was compared to
+  the invoice line, so corrupting `amountCents`, `priceVersionId`, or
+  `billableQuantity` changed nothing. `subtotalCents` was never read at all.
+
+That made the product's central guarantee — nothing is called correct without
+reconciliation — hollow in exactly the cases it exists for.
+
+**The rule now encoded: reconciliation must fail when a stage is *absent*, not
+only when two present stages disagree.**
+
+Services are enumerated across all four stages, so a service appearing at one
+and missing from another is visible. Each stage is then verified independently:
+raw → daily, daily → rated quantity, the charge's own billable arithmetic, the
+price version it cites, recomputation → *stored* charge, stored charge → line,
+line → charge linkage, lines → subtotal, subtotal → total.
+
+Fixed-fee lines (Platform fee, R2, D1) are deliberately exempt from stage
+coverage: they legitimately have an invoice line and no usage pipeline. Their
+amounts still have to tie into the subtotal, and a test covers both halves.
+
+PRD §12.9's four required boundaries are all still present; the additions are
+strictly stronger. The golden scenario reconciles with all eighteen checkpoints
+at zero, and the §20.4 fact block is unchanged.

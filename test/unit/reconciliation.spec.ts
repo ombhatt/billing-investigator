@@ -39,16 +39,32 @@ describe("reconciliation on the golden scenario", () => {
     expect(report.totalDiscrepancyCents).toBe(0);
   });
 
-  it("covers all four required boundaries", () => {
+  it("covers all four boundaries PRD §12.9 requires", () => {
     const boundaries = new Set(report.checkpoints.map((c) => c.boundary));
-    expect(boundaries).toEqual(
-      new Set([
-        "raw_usage_vs_daily_aggregate",
-        "daily_aggregate_vs_rated_quantity",
-        "rated_charge_vs_invoice_line",
-        "invoice_components_vs_total"
-      ])
-    );
+    for (const required of [
+      "raw_usage_vs_daily_aggregate",
+      "daily_aggregate_vs_rated_quantity",
+      "rated_charge_vs_invoice_line",
+      "invoice_components_vs_total"
+    ]) {
+      expect(boundaries).toContain(required);
+    }
+  });
+
+  it("also covers the boundaries added after review", () => {
+    // The four required boundaries alone could pass while the pipeline was
+    // demonstrably broken; these close that.
+    const boundaries = new Set(report.checkpoints.map((c) => c.boundary));
+    for (const added of [
+      "stage_coverage",
+      "recomputed_charge_vs_rated_charge",
+      "rated_charge_internal_consistency",
+      "rated_charge_price_version",
+      "invoice_line_linkage",
+      "invoice_lines_vs_subtotal"
+    ]) {
+      expect(boundaries).toContain(added);
+    }
   });
 
   it("reconciles July as well", () => {
