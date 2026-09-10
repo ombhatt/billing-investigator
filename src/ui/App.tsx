@@ -4,6 +4,7 @@ import { useAgentChat } from "@cloudflare/ai-chat/react";
 import { AccountHeader } from "./AccountHeader.js";
 import { Conversation } from "./Conversation.js";
 import { InvestigationPanel } from "./InvestigationPanel.js";
+import { resolveSessionName } from "./session.js";
 import type { AccountSummary, AgentState, TabId } from "./types.js";
 
 const ACCOUNT_ID = "abc123";
@@ -12,13 +13,12 @@ const ACCOUNT_ID = "abc123";
 const SUGGESTED_PROMPT =
   "Why is account abc123's August invoice higher than July, and is the bill correct?";
 
-/**
- * One shared demo session. A real deployment would key this per investigation;
- * P0 is a single-account demo and PRD §4.2 rules out multi-tenancy.
- */
-const SESSION_NAME = "demo-abc123";
-
 export default function App() {
+  // One investigation per browser, not one per deployment. This name is the
+  // Durable Object instance id: as a shared constant it put every visitor into
+  // the same conversation, so one reader's Reset wiped another's investigation
+  // while they were still reading it. Resolved once, then stable.
+  const [sessionName] = useState(resolveSessionName);
   const [input, setInput] = useState("");
   const [connected, setConnected] = useState(false);
   const [tab, setTab] = useState<TabId>("plan");
@@ -29,7 +29,7 @@ export default function App() {
 
   const agent = useAgent<AgentState>({
     agent: "BillingInvestigatorAgent",
-    name: SESSION_NAME,
+    name: sessionName,
     onOpen: useCallback(() => setConnected(true), []),
     onClose: useCallback(() => setConnected(false), [])
   });

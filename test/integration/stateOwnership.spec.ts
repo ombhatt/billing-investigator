@@ -97,7 +97,7 @@ describe("investigation state is server-owned", () => {
     const asClient = () =>
       validate.call(
         {} as BillingInvestigatorAgent,
-        { investigation: FORGED },
+        { investigation: FORGED, generation: 0 },
         { id: "client-1" }
       );
     expect(asClient).toThrow(ClientStateWriteRejected);
@@ -105,7 +105,7 @@ describe("investigation state is server-owned", () => {
     const asServer = () =>
       validate.call(
         {} as BillingInvestigatorAgent,
-        { investigation: FORGED },
+        { investigation: FORGED, generation: 0 },
         "server"
       );
     expect(asServer).not.toThrow();

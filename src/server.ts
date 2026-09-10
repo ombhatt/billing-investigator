@@ -3,6 +3,7 @@ import { AIChatAgent, type OnChatMessageOptions } from "@cloudflare/ai-chat";
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { answerFollowUp } from "./agent/followUp.js";
+import { mayCommit, nextGeneration } from "./agent/generation.js";
 import { newInvestigation, runInvestigationTurn } from "./agent/loop.js";
 import { DeterministicModelClient, type ModelClient } from "./agent/modelClient.js";
 import { assertServerOwnedState } from "./agent/stateOwnership.js";
@@ -23,6 +24,12 @@ const DEFAULT_MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 interface AgentState {
   investigation: InvestigationRecord | null;
+  /**
+   * Advanced by every reset. A turn may only commit into the generation it
+   * opened in, so work started before a reset cannot write itself back
+   * afterwards. Server-owned, like the record.
+   */
+  generation: number;
 }
 
 export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
@@ -33,7 +40,12 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
   // Synced to the UI and persisted by the Durable Object, which is what
   // restores plan, evidence and summary after a refresh. Bulk tool payloads are
   // written to this.sql instead so state stays small.
-  initialState: AgentState = { investigation: null };
+  initialState: AgentState = { investigation: null, generation: 0 };
+
+  /** State persisted before generations existed carries no counter. */
+  private currentGeneration(): number {
+    return this.state?.generation ?? 0;
+  }
 
   /**
    * The SDK's default accepts client-sent state, persists it and broadcasts it
@@ -52,7 +64,12 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
       request.method === "POST" &&
       url.pathname.split("/").pop() === "reset-investigation"
     ) {
-      this.setState({ investigation: null });
+      // Advancing the generation is what makes the reset stick: a turn already
+      // parked on a model call can no longer write its record back afterwards.
+      this.setState({
+        investigation: null,
+        generation: nextGeneration(this.currentGeneration())
+      });
       return new Response(null, { status: 204 });
     }
     return super.onRequest(request);
@@ -107,7 +124,31 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
     }
   }
 
-  async onChatMessage(_onFinish: unknown, _options?: OnChatMessageOptions) {
+  /**
+   * A turn that was reset or cancelled while it was running answers nobody.
+   *
+   * The client has already discarded the exchange, so the stream is empty; the
+   * point is that nothing is persisted. Read immediately before `setState` with
+   * no `await` between them, so the check and the write cannot be interleaved.
+   */
+  private discardedTurn(): Response {
+    return createUIMessageStreamResponse({
+      stream: createUIMessageStream({
+        execute: ({ writer }) => {
+          const id = "response";
+          writer.write({ type: "text-start", id });
+          writer.write({ type: "text-end", id });
+        }
+      })
+    });
+  }
+
+  async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
+    const openedIn = this.currentGeneration();
+    const abortSignal = options?.abortSignal;
+    const stillOurs = () =>
+      mayCommit(openedIn, this.currentGeneration(), abortSignal);
+
     const last = this.messages.at(-1);
     const question =
       last?.parts
@@ -131,6 +172,7 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
     if (existing && isTerminal(existing.state)) {
       // Follow-up: answered from persisted evidence, no new tool calls.
       const followUp = await answerFollowUp(existing, question, model);
+      if (!stillOurs()) return this.discardedTurn();
       text = followUp.text;
     } else {
       const runner = new ToolRunner({
@@ -143,8 +185,13 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
         { runner, model, focusService: FOCUS_SERVICE }
       );
 
+      // The tool calls genuinely ran, so the audit trail keeps them either way.
+      // It is the investigation record that must not come back from the dead.
       this.recordExecutions(runner, record.investigationId);
-      this.setState({ investigation: record });
+      if (!stillOurs()) return this.discardedTurn();
+      // Writing `openedIn` rather than re-reading: a turn never advances the
+      // generation, it only ever commits into the one it was started in.
+      this.setState({ investigation: record, generation: openedIn });
 
       toolActivity = record.plan
         .filter((s) => s.status === "completed")

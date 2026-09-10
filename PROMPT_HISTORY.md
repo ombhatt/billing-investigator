@@ -666,3 +666,45 @@ middle case is the one that had been collapsing into the first.
 fails six, including invoice generation and reconciliation. Golden facts
 unchanged — the seeded Workers and Workers AI versions both run from
 2026-01-01 with no end, so they cover every period.
+
+---
+
+### Review finding 8 (P1) — all visitors share one investigation; Reset does not isolate in-flight work
+
+> One visitor sees or clears another visitor's conversation. Reset during
+> inference can be followed by the old investigation writing its result back
+> into the cleared state.
+
+Two defects with one shape, both confirmed.
+
+**Shared identity.** The name given to `useAgent` is the Durable Object instance
+id, and it was a module constant, `demo-abc123`. Every browser on the deployed
+demo joined the same conversation. Each browser now resolves its own id from
+`localStorage` (`src/ui/session.ts`), and only a value the app issued itself is
+accepted back out — the id lands in the agent's routing path, so a tampered
+`../something` would address a different instance. Conversations are separated;
+tenancy is not, since every visitor still investigates the single seeded
+`abc123`.
+
+**Stale turns could commit.** The reviewer was right that `_options.abortSignal`
+was ignored. The SDK does abort the active turn on clear, but abort only stops
+the transport: the server-side turn was an awaited promise chain that resumed
+when its model call resolved and persisted the record into the conversation the
+reader had just cleared. The conversation now carries a server-owned
+`generation` (`src/agent/generation.ts`); Reset advances it, and a turn commits
+only into the generation it opened in. The abort signal is honoured too. The
+check sits immediately before `setState` with no `await` between them.
+
+Tool executions still reach the audit trail — they genuinely ran. It is the
+investigation record that must not come back from the dead.
+
+353 tests, up from 333. Mutation-checked twice: making the commit guard always
+return true fails six (three of them through the real `onChatMessage`, which is
+what proves the stale turn really did write back), and restoring the shared
+constant name fails nine.
+
+The integration test builds a stand-in for the DO's persistence and runs the
+real `onChatMessage` and `onRequest` against it, with a model gated inside
+`classify` so the reset lands while the turn is genuinely parked. A control case
+asserts an uninterrupted turn still commits, so the guard tests cannot pass
+vacuously on a turn that never finished.

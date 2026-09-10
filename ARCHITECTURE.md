@@ -575,3 +575,39 @@ The distinction the code now makes explicit:
 | two versions in the window | a price change (PRD §11.5) |
 | one version not spanning the window | a coverage gap — refuse to rate |
 | no version | no price — refuse to rate |
+
+## 16. Addendum: one investigation per browser, and Reset that sticks
+
+Review found the demo was a single shared conversation, and that Reset could be
+undone by work that was already running.
+
+**Every visitor shared one Durable Object.** The name passed to `useAgent` is the
+DO instance id, and it was the constant `demo-abc123`. Two people opening the
+deployed URL at once joined the same investigation: one saw the other's
+questions appear, and either one's Reset cleared work the other was reading.
+Each browser now keeps its own id in `localStorage` (`src/ui/session.ts`),
+resolved once per load and stable across refreshes.
+
+This separates conversations, not tenants. Every visitor still investigates the
+single seeded `abc123`, so PRD §4.2's exclusion of multi-tenancy stands, and the
+id is not authentication: it is opaque, grants nothing, and anyone holding it
+reads the same read-only synthetic data. Only a value the app issued itself is
+accepted back out of storage — the id is interpolated into the agent's routing
+path, so a stored `../something` would address a different instance.
+
+**A cancelled turn could still commit.** `clearHistory()` aborts the turn at the
+transport, but the server-side turn is an ordinary awaited promise chain: when
+the model call it was parked on finally resolved, it ran on and persisted its
+record. The reader watched the cleared investigation reappear — plan, evidence,
+verdict and all.
+
+The conversation now carries a server-owned `generation`. Every reset advances
+it; a turn captures the generation it opened in and commits only into that same
+generation, and `onChatMessage` also honours the SDK's `abortSignal`, which it
+previously ignored. The check sits immediately before `setState` with no `await`
+between them, so it cannot be interleaved. Tool executions still reach the audit
+trail — they genuinely ran — but the record does not come back.
+
+The pattern is the same one findings 1–4 shared: a guarantee that held in the
+present case and not in the absent one. Reset removed what was there; it had no
+answer for what was still on its way.
