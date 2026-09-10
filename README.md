@@ -5,6 +5,10 @@ Operations, built on Cloudflare Workers.
 
 **Live demo:** https://billing-investigator.om-bhatt.workers.dev
 
+**New here?** [`docs/HOW_IT_WORKS.md`](./docs/HOW_IT_WORKS.md) explains the whole
+system in plain language, including why the language model is not allowed near
+any of the arithmetic.
+
 > **All data here is synthetic and fictional.** Contract prices and internal
 > pipeline boundaries are illustrative and do not reflect Cloudflare pricing.
 
@@ -204,10 +208,14 @@ charts, AI Gateway, Workflows, Vectorize, R2, authentication, RBAC, multi-tenanc
 
 ## Further reading
 
+- [`docs/HOW_IT_WORKS.md`](./docs/HOW_IT_WORKS.md) — the plain-language version:
+  what each Cloudflare component does, which steps the model is and is not
+  allowed to touch, and the other stacks this could have been built on
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — components, agent loop, data lineage,
   security boundary, state ownership, failure modes, production evolution.
-  §9–§16 are addenda: one per external code-review finding, each recording what
-  the defect was and why the fix takes the shape it does.
+  §9–§20 are addenda: one per code-review finding and per defect found in
+  manual testing, each recording what the defect was and why the fix takes the
+  shape it does.
 - [`docs/PRD.md`](./docs/PRD.md) — the product requirements this was built against
 - [`docs/BUILD_PLAN.md`](./docs/BUILD_PLAN.md) — how P0 was scoped down
 - [`docs/BUILD_STATUS.md`](./docs/BUILD_STATUS.md) — milestone status, spike
