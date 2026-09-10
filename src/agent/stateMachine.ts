@@ -8,7 +8,10 @@ import type { InvestigationState } from "./types.js";
  */
 const TRANSITIONS: Record<InvestigationState, InvestigationState[]> = {
   created: ["clarification_required", "planning", "failed"],
-  clarification_required: ["planning", "failed"],
+  // Self-transition: a reply that still does not identify two available
+  // periods leaves the investigation exactly where it was, waiting. Without it
+  // the second unclear answer throws instead of asking again.
+  clarification_required: ["clarification_required", "planning", "failed"],
   planning: ["investigating", "failed"],
   investigating: ["reconciling", "failed"],
   reconciling: ["completed", "unresolved", "failed"],

@@ -708,3 +708,47 @@ real `onChatMessage` and `onRequest` against it, with a model gated inside
 `classify` so the reset lands while the turn is genuinely parked. A control case
 asserts an uninterrupted turn still commits, so the guard tests cannot pass
 vacuously on a turn that never finished.
+
+---
+
+### Review finding 9 (P1) — clarification replies cannot complete classification
+
+> After asking which months to compare, the agent cannot use a valid answer. It
+> proceeds with null periods and returns unresolved.
+
+Both halves confirmed. The clarification branch was three lines that moved the
+state to `planning` and did nothing else — classification lived only in the
+`created` branch, so the one path that could set the periods was the one path a
+clarification reply never took. Null periods make `inputFor()` return null, so
+every tool was skipped and the turn ended `unresolved`, the reader having
+answered correctly.
+
+Both branches now share `classifyPeriods`. A reply is classified against the
+request it answers: "August versus July 2026" names no account and asks nothing,
+so the model gets the original question, the question put to the reader, and the
+reply. `originalQuestion` is persisted for this and survives the round trip.
+
+Re-asking also had to become a legal transition. `clarification_required` listed
+only `planning` and `failed`, so a second unclear reply would have thrown
+`InvalidTransition` — fixing the first defect alone would have turned a vague
+answer into a crash.
+
+The second half — silently swapping an unavailable period for the newest
+invoice — was the more dangerous one, since "why did May jump?" became a
+confident, reconciled answer about August with nothing marking it as the wrong
+question. Requested periods the account lacks are now named alongside the ones it
+has, and the investigation waits. The fallback survives only where the model
+could not be reached at all: nothing was requested, so nothing is overridden.
+
+**An existing test asserted the substitution as the requirement** — "falls back
+to the two most recent periods when the model offers unknown ones". Review was
+right and the test was wrong. It was rewritten rather than deleted, with a
+comment recording what it used to claim.
+
+361 tests, up from 353. Mutation-checked twice: restoring the no-op clarification
+branch fails three, restoring the silent substitution fails three more. Golden
+facts unchanged.
+
+Also corrected two stale claims in `ARCHITECTURE.md` found while writing this up:
+the state diagram had no self-loop on `clarification_required`, and the loop
+section still said the golden path uses nine tool calls rather than eleven.

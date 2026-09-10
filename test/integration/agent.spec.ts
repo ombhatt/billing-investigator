@@ -111,14 +111,24 @@ describe("classification", () => {
     expect(record.state).toBe("completed");
   });
 
-  it("falls back to the two most recent periods when the model offers unknown ones", async () => {
+  it("reports periods it does not have rather than substituting the newest", async () => {
+    // This previously asserted the opposite — a silent fall back to the two
+    // most recent invoices. Review was right that it is the wrong behaviour:
+    // "why did May jump?" became an investigation of August, answered with
+    // full confidence. The wrong question answered correctly is worse than no
+    // answer, so the periods are named and the investigation waits.
     const model = new ScriptedModel({
       classification: { currentPeriod: "2099-01", comparisonPeriod: "2099-02" }
     });
     const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
 
-    expect(record.currentPeriod).toBe("2026-08");
-    expect(record.comparisonPeriod).toBe("2026-07");
+    expect(record.state).toBe("clarification_required");
+    expect(record.currentPeriod).toBeNull();
+    expect(record.comparisonPeriod).toBeNull();
+    expect(record.clarificationQuestion).toContain("2099-01");
+    expect(record.clarificationQuestion).toContain("2099-02");
+    expect(record.clarificationQuestion).toContain("2026-08");
+    expect(record.summary).toBeNull();
   });
 
   it("asks for clarification instead of guessing when the model requests it", async () => {

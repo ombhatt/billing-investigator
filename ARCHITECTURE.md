@@ -84,8 +84,9 @@ One user turn:
 ```
 
 Bounds, all server-enforced: **12 tool calls**, **4 planning cycles**, one retry
-and only for a failure the tool marked retryable. The golden path uses nine
-calls and one planning cycle.
+and only for a failure the tool marked retryable. The golden path uses eleven
+calls and one planning cycle — nine distinct tools, two of which run once per
+metered service (§13).
 
 ### The model seam
 
@@ -111,6 +112,8 @@ Two consequences:
 ### State machine
 
 ```
+                        ┌──────┐ reply still unclear
+                        │      ▼
 created ──► clarification_required ──► planning ──► investigating
                                           │              │
                                           └──────────────┤
@@ -614,3 +617,60 @@ trail — they genuinely ran — but the record does not come back.
 The pattern is the same one findings 1–4 shared: a guarantee that held in the
 present case and not in the absent one. Reset removed what was there; it had no
 answer for what was still on its way.
+
+## 17. Addendum: a clarification the agent cannot act on
+
+Review found the agent could ask a question it was unable to hear the answer to.
+
+Asked "which months?", answered "August versus July 2026", the reply branch did
+this:
+
+```ts
+} else if (record.state === "clarification_required") {
+  record = { ...record, state: transition(record.state, "planning") };
+}
+```
+
+It moved to planning without reclassifying. `currentPeriod` and
+`comparisonPeriod` were still null, `inputFor()` returns null without them, every
+tool was skipped for want of an input, and the turn ended `unresolved` — the
+reader having answered correctly. Classification ran only in the `created`
+branch, so the one path that could set the periods was the one path a
+clarification reply never took.
+
+Both branches now go through `classifyPeriods`. A reply is classified against
+the request it answers, not on its own: "August versus July 2026" names no
+account and asks nothing, so the model receives the original question, the
+question that was put to the reader, and the reply. `originalQuestion` is
+persisted for exactly this, and survives the round trip so the synthesised
+context is never mistaken for something the reader typed.
+
+Re-asking is now a legal transition. `clarification_required` previously listed
+only `planning` and `failed`, so a second unclear reply would have thrown
+`InvalidTransition` — the fix above would have converted a wrong answer into a
+crash.
+
+### Unavailable periods are reported, not substituted
+
+The same classification path silently replaced any period the account did not
+have with the newest invoice:
+
+```ts
+const currentPeriod =
+  classification && periods.includes(classification.currentPeriod)
+    ? classification.currentPeriod
+    : (sorted.at(-1) ?? null);
+```
+
+So "why did May jump?" became an investigation of August, reconciled, and
+answered with high confidence. The wrong question answered correctly is worse
+than no answer, because nothing in the output marks it as the wrong question.
+
+Requested periods the account does not have are now named, alongside the ones it
+does, and the investigation waits. Falling back to the two most recent invoices
+survives in exactly one case — the model could not be reached at all, so nothing
+was requested and nothing is being overridden.
+
+One existing test asserted the old substitution as though it were the
+requirement. It was rewritten rather than deleted: the comment now records that
+review was right and why.

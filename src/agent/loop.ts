@@ -3,7 +3,11 @@ import { applyToolFacts, emptyFacts } from "../tools/facts.js";
 import type { ToolRunner } from "../tools/registry.js";
 import { isFailure, type ToolResult } from "../types/tools.js";
 import { applicableDiagnostics, assessCompletion } from "./completion.js";
-import type { ModelClient, PlanUpdate } from "./modelClient.js";
+import type {
+  CaseClassification,
+  ModelClient,
+  PlanUpdate
+} from "./modelClient.js";
 import { planUpdateSchema } from "./modelClient.js";
 import { safeNarrative } from "./narrativeGuard.js";
 import {
@@ -47,6 +51,7 @@ export function newInvestigation(
     serviceEffects: [],
     unverifiedFixedCharges: [],
     state: "created",
+    originalQuestion: null,
     clarificationQuestion: null,
     plan: initialPlan(),
     hypotheses: initialHypotheses(),
@@ -345,6 +350,150 @@ function captureServiceEffects(
   }));
 }
 
+const DEFAULT_CLARIFICATION =
+  "Which two billing periods should I compare for this account?";
+
+/** Reads as one request: the reply alone does not say what was being asked. */
+function clarificationContext(
+  record: InvestigationRecord,
+  reply: string
+): string {
+  return [
+    `Original request: ${record.originalQuestion ?? ""}`.trim(),
+    `Clarification asked: ${record.clarificationQuestion ?? DEFAULT_CLARIFICATION}`,
+    `Answer: ${reply}`
+  ].join("\n");
+}
+
+type PeriodChoice =
+  | { currentPeriod: string; comparisonPeriod: string }
+  | { clarify: string };
+
+function listPeriods(periods: string[]): string {
+  return [...periods].sort().join(", ");
+}
+
+/**
+ * Which two periods to compare, or what to ask.
+ *
+ * A requested period that the account does not have is *reported*, never
+ * quietly swapped for the newest invoice. Substituting turned "why did May
+ * jump?" into an investigation of August and answered it with conviction — the
+ * wrong question, answered correctly, is worse than no answer.
+ *
+ * Falling back to the two most recent invoices stays legitimate in exactly one
+ * case: the model could not be reached at all, so nothing was requested and
+ * nothing is being overridden.
+ */
+function resolvePeriods(
+  classification: CaseClassification | null,
+  periods: string[]
+): PeriodChoice {
+  const sorted = [...periods].sort();
+
+  if (periods.length < 2) {
+    return {
+      clarify:
+        periods.length === 0
+          ? "I have no invoices for this account, so there is nothing to compare."
+          : `I only have one invoice for this account (${sorted[0]}), so there is nothing to compare it with.`
+    };
+  }
+
+  if (!classification) {
+    return {
+      currentPeriod: sorted.at(-1)!,
+      comparisonPeriod: sorted.at(-2)!
+    };
+  }
+
+  if (classification.needsClarification) {
+    return {
+      clarify: classification.clarificationQuestion ?? DEFAULT_CLARIFICATION
+    };
+  }
+
+  const requested = [classification.currentPeriod, classification.comparisonPeriod];
+  const missing = [...new Set(requested.filter((p) => !periods.includes(p)))];
+  if (missing.length > 0) {
+    return {
+      clarify:
+        `I do not have ${missing.join(" or ")} for this account. ` +
+        `Available periods are ${listPeriods(periods)}. Which two should I compare?`
+    };
+  }
+
+  if (classification.currentPeriod === classification.comparisonPeriod) {
+    return {
+      clarify:
+        `That names ${classification.currentPeriod} twice. ` +
+        `Available periods are ${listPeriods(periods)}. Which two should I compare?`
+    };
+  }
+
+  return {
+    currentPeriod: classification.currentPeriod,
+    comparisonPeriod: classification.comparisonPeriod
+  };
+}
+
+/**
+ * Classify and pin down the periods, or return the record still waiting.
+ *
+ * `question` is what the model reads; `provenance` is the request to remember,
+ * so a clarification round trip keeps the original rather than storing the
+ * synthesised context as though the user had typed it.
+ */
+async function classifyPeriods(
+  record: InvestigationRecord,
+  question: string,
+  provenance: string,
+  deps: LoopDeps
+): Promise<InvestigationRecord> {
+  const context = await deps.runner.run("get_account_context", {
+    accountId: record.accountId
+  });
+  const periods = isFailure(context)
+    ? []
+    : (context.data as { availableInvoices: { period: string }[] })
+        .availableInvoices.map((i) => i.period);
+
+  let classification: CaseClassification | null;
+  try {
+    classification = await deps.model.classify({
+      question,
+      boundAccountId: record.accountId,
+      availablePeriods: periods
+    });
+  } catch {
+    classification = null;
+  }
+
+  // The account is never taken from the model: the investigation is bound to
+  // one account server-side and a model-supplied id cannot widen that.
+  const choice = resolvePeriods(classification, periods);
+  const remembered = record.originalQuestion ?? provenance;
+
+  if ("clarify" in choice) {
+    return {
+      ...record,
+      originalQuestion: remembered,
+      state: transition(record.state, "clarification_required"),
+      clarificationQuestion: choice.clarify
+    };
+  }
+
+  return {
+    ...record,
+    caseType: "invoice_variance",
+    originalQuestion: remembered,
+    currentPeriod: choice.currentPeriod,
+    comparisonPeriod: choice.comparisonPeriod,
+    clarificationQuestion: null,
+    state: transition(record.state, "planning")
+  };
+}
+
 function applyHypotheses(
   record: InvestigationRecord,
   update: PlanUpdate
@@ -377,68 +526,23 @@ export async function runInvestigationTurn(
 
   let record = input;
 
-  // 1. Classify, or reuse an existing classification.
+  // 1. Classify. A clarification reply is classified too, against the request
+  // it answers — the previous branch transitioned straight to planning without
+  // reclassifying, so the periods stayed null and every turn after a
+  // clarification investigated nothing and returned unresolved.
   if (record.state === "created") {
-    const context = await deps.runner.run("get_account_context", {
-      accountId: record.accountId
-    });
-    const periods = isFailure(context)
-      ? []
-      : ((context.data as { availableInvoices: { period: string }[] })
-          .availableInvoices.map((i) => i.period));
-
-    let classification;
-    try {
-      classification = await deps.model.classify({
-        question,
-        boundAccountId: record.accountId,
-        availablePeriods: periods
-      });
-    } catch {
-      classification = null;
-    }
-
-    // The account is never taken from the model: the investigation is bound to
-    // one account server-side and a model-supplied id cannot widen that.
-    const sorted = [...periods].sort();
-    const currentPeriod =
-      classification && periods.includes(classification.currentPeriod)
-        ? classification.currentPeriod
-        : (sorted.at(-1) ?? null);
-    const comparisonPeriod =
-      classification && periods.includes(classification.comparisonPeriod)
-        ? classification.comparisonPeriod
-        : (sorted.at(-2) ?? null);
-
-    if (classification?.needsClarification) {
-      return {
-        ...record,
-        state: transition(record.state, "clarification_required"),
-        clarificationQuestion:
-          classification.clarificationQuestion ??
-          "Which billing periods should I compare?"
-      };
-    }
-
-    if (!currentPeriod || !comparisonPeriod || currentPeriod === comparisonPeriod) {
-      return {
-        ...record,
-        state: transition(record.state, "clarification_required"),
-        clarificationQuestion:
-          "Which two billing periods should I compare for this account?"
-      };
-    }
-
-    record = {
-      ...record,
-      caseType: "invoice_variance",
-      currentPeriod,
-      comparisonPeriod,
-      state: transition(record.state, "planning")
-    };
+    record = await classifyPeriods(record, question, question, deps);
   } else if (record.state === "clarification_required") {
-    record = { ...record, state: transition(record.state, "planning") };
+    record = await classifyPeriods(
+      record,
+      clarificationContext(record, question),
+      record.originalQuestion ?? question,
+      deps
+    );
   }
+
+  // Still unanswered: ask again rather than investigate an unknown period.
+  if (record.state === "clarification_required") return record;
 
   record = { ...record, state: transition(record.state, "investigating") };
 

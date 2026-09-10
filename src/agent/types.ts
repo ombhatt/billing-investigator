@@ -79,6 +79,12 @@ export interface InvestigationRecord {
   /** Fixed charges with no authorising subscription record. */
   unverifiedFixedCharges: string[];
   state: InvestigationState;
+  /**
+   * The request that opened the investigation, kept so a clarification reply
+   * can be read against it. "August versus July 2026" is only an answer if the
+   * question it answers is still available.
+   */
+  originalQuestion: string | null;
   clarificationQuestion: string | null;
   plan: PlanStep[];
   hypotheses: Hypothesis[];
