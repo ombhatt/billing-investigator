@@ -2,7 +2,7 @@ import { periodEnd, periodStart } from "../domain/period.js";
 import { applyToolFacts, emptyFacts } from "../tools/facts.js";
 import type { ToolRunner } from "../tools/registry.js";
 import { isFailure, type ToolResult } from "../types/tools.js";
-import { assessCompletion } from "./completion.js";
+import { applicableDiagnostics, assessCompletion } from "./completion.js";
 import type { ModelClient, PlanUpdate } from "./modelClient.js";
 import { planUpdateSchema } from "./modelClient.js";
 import { safeNarrative } from "./narrativeGuard.js";
@@ -513,6 +513,31 @@ export async function runInvestigationTurn(
       }
     }
     if (update.done) break;
+  }
+
+  // 3a. Backstop: run any diagnostic the variance makes applicable that the
+  // model did not select. Live running showed the real model omitting the price
+  // check, which correctly produced "unresolved" — but a mandatory check should
+  // not depend on the model choosing it. The model owns ordering and optional
+  // extras; it does not gate required work.
+  // Recomputed as facts arrive: get_account_events only becomes applicable once
+  // the change point has produced a date to anchor its window, so a single
+  // up-front list would miss it.
+  for (let pass = 0; pass < PER_SERVICE_TOOLS.length + 2; pass++) {
+    const done = record.plan
+      .filter((s) => s.status === "completed")
+      .map((s) => s.id);
+    const missing = applicableDiagnostics(record.facts, metered).filter(
+      (id) => !done.includes(id)
+    );
+    if (missing.length === 0) break;
+    if (record.metrics.toolCalls >= MAX_TOOL_CALLS_PER_TURN) break;
+
+    for (const id of missing) {
+      if (record.metrics.toolCalls >= MAX_TOOL_CALLS_PER_TURN) break;
+      const [tool, service] = id.split(":");
+      record = await callTool(record, tool, deps, service);
+    }
   }
 
   // 4. Reconciliation is forced, never selected. PRD §10.5 rule 2.

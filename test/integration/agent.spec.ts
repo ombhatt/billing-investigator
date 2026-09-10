@@ -241,51 +241,58 @@ describe("unperformed diagnostics are not treated as checked", () => {
     }
   }
 
-  it("stays unresolved when the model skips the usage diagnostics", async () => {
-    // Review reproduced this returning completed / high confidence / no
-    // blockers, having never checked duplication, pricing, usage shape or
-    // operational correlation.
+  it("performs the applicable diagnostics the model declined to select", async () => {
+    // A mandatory check must not depend on the model choosing it. Live running
+    // showed the real model omitting the price check, which produced a correct
+    // but unhelpful "unresolved"; the server now backstops.
     const record = await runInvestigationTurn(
       fresh(),
+      QUESTION,
+      deps(new EarlyStop())
+    );
+
+    const completed = record.plan
+      .filter((s) => s.status === "completed")
+      .map((s) => s.id);
+    for (const id of [
+      "get_usage_timeseries",
+      "detect_usage_change_point",
+      "get_price_versions:Workers",
+      "get_price_versions:Workers AI",
+      "check_duplicate_usage:Workers",
+      "check_duplicate_usage:Workers AI"
+    ]) {
+      expect(completed).toContain(id);
+    }
+    expect(record.state).toBe("completed");
+  });
+
+  it("checks duplicates rather than assuming none, even on an early stop", async () => {
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      deps(new EarlyStop())
+    );
+
+    // Actually checked, so the zero is earned rather than defaulted.
+    expect(record.facts.exact_duplicate_count).toBe(0);
+    expect(record.facts.probable_duplicate_count).toBe(0);
+  });
+
+  it("still blocks when the budget prevents the backstop running", async () => {
+    // The blocker path remains: unchecked is never treated as clean, whether
+    // the model skipped it or there was no budget left to run it.
+    const record = await runInvestigationTurn(
+      fresh({ metrics: { ...fresh().metrics, toolCalls: 6 } }),
       QUESTION,
       deps(new EarlyStop())
     );
 
     expect(record.state).toBe("unresolved");
     expect(record.summary!.invoiceAppearsCorrect).toBe(false);
-    expect(record.facts.confidence).not.toBe("high");
-  });
-
-  it("names every diagnostic it did not perform", async () => {
-    const record = await runInvestigationTurn(
-      fresh(),
-      QUESTION,
-      deps(new EarlyStop())
+    expect(record.blockers.join(" ")).toMatch(
+      /diagnostics not performed|tool-call limit reached/
     );
-
-    const blockers = record.blockers.join(" ");
-    expect(blockers).toContain("diagnostics not performed");
-    for (const tool of [
-      "get_price_versions",
-      "get_usage_timeseries",
-      "detect_usage_change_point",
-      "check_duplicate_usage"
-    ]) {
-      expect(blockers).toContain(tool);
-    }
-  });
-
-  it("does not read an unchecked duplicate count as zero duplicates", async () => {
-    const record = await runInvestigationTurn(
-      fresh(),
-      QUESTION,
-      deps(new EarlyStop())
-    );
-
-    // Unchecked stays unchecked, and cannot be quietly cleared.
-    expect(record.facts.exact_duplicate_count).toBeNull();
-    expect(record.facts.probable_duplicate_count).toBeNull();
-    expect(record.summary!.invoiceAppearsCorrect).toBe(false);
   });
 
   it("still completes when the diagnostics are actually run", async () => {
