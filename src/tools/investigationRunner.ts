@@ -173,6 +173,7 @@ export async function runInvestigation(
     changeDate: string | null;
     ratio: number | null;
     material: boolean;
+    confidence: "high" | "medium" | "low";
   }>(changeResult, "detect_usage_change_point");
   record(
     6,
@@ -275,6 +276,8 @@ export async function runInvestigation(
       workers_ai_variance_cents: serviceVariance("Workers AI"),
       price_changed: pricing.priceChanged,
       change_date: changePoint.changeDate,
+      change_point_material: changePoint.detected ? changePoint.material : null,
+      change_point_confidence: changePoint.detected ? changePoint.confidence : null,
       correlated_event_id: correlatedEventId,
       exact_duplicate_count: duplicates.exactCount,
       probable_duplicate_count: duplicates.probableCount,

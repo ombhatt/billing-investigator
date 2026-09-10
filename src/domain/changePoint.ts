@@ -17,8 +17,14 @@ export interface DailyPoint {
 }
 
 export interface ChangePointResult {
+  /** An accepted change point, not merely the best row the scan produced. */
   detected: boolean;
   changeDate: IsoDate | null;
+  /**
+   * The strongest candidate the scan found, accepted or not. Kept so a
+   * rejection can say what it rejected instead of reporting nothing.
+   */
+  candidateDate: IsoDate | null;
   baselineDailyQuantity: number;
   postChangeDailyQuantity: number;
   ratio: number | null;
@@ -48,6 +54,7 @@ function emptyResult(
   return {
     detected: false,
     changeDate: null,
+    candidateDate: null,
     baselineDailyQuantity: 0,
     postChangeDailyQuantity: 0,
     ratio: null,
@@ -144,6 +151,30 @@ export function detectChangePoint(
     ? rateCents(projectedExtraQuantity, price.overageRateCents, price.unitDivisor)
     : 0;
 
+  // A scan always yields a best row; that is not the same as having found a
+  // change point. On constant usage every candidate ties at ratio 1.00, and
+  // returning the earliest tie as `detected` manufactured a usage shift out of
+  // flat data — which then anchored an operational-event correlation and put
+  // "Usage shifted on ..." in the summary.
+  //
+  // Acceptance is a departure from the baseline in either direction. A
+  // sustained fall is as real a change point as a rise, even though only a rise
+  // can carry a positive cost impact.
+  const shifted = ratio >= MATERIAL_RATIO || ratio <= 1 / MATERIAL_RATIO;
+  if (!shifted) {
+    return {
+      ...emptyResult(
+        series.length,
+        `no sustained change: the strongest candidate, ${series[changeIndex].date}, ` +
+          `moved ${ratio.toFixed(2)}x, inside the ${MATERIAL_RATIO}x threshold`
+      ),
+      candidateDate: series[changeIndex].date,
+      baselineDailyQuantity: best.pre,
+      postChangeDailyQuantity: best.post,
+      ratio
+    };
+  }
+
   const material =
     ratio >= MATERIAL_RATIO &&
     (price === undefined ||
@@ -152,6 +183,7 @@ export function detectChangePoint(
   return {
     detected: true,
     changeDate: series[changeIndex].date,
+    candidateDate: series[changeIndex].date,
     baselineDailyQuantity: best.pre,
     postChangeDailyQuantity: best.post,
     ratio,

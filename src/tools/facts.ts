@@ -13,6 +13,9 @@ export interface InvestigationFacts {
   workers_ai_variance_cents: number | null;
   price_changed: boolean | null;
   change_date: string | null;
+  /** Qualifiers for `change_date`, kept so a weak signal cannot read as a strong one. */
+  change_point_material: boolean | null;
+  change_point_confidence: "high" | "medium" | "low" | null;
   correlated_event_id: string | null;
   exact_duplicate_count: number | null;
   probable_duplicate_count: number | null;
@@ -34,6 +37,8 @@ export function emptyFacts(): InvestigationFacts {
     workers_ai_variance_cents: null,
     price_changed: null,
     change_date: null,
+    change_point_material: null,
+    change_point_confidence: null,
     correlated_event_id: null,
     exact_duplicate_count: null,
     probable_duplicate_count: null,
@@ -105,8 +110,22 @@ export function applyToolFacts(
     }
 
     case "detect_usage_change_point": {
-      const d = data as { changeDate: string | null };
-      return { ...facts, change_date: d.changeDate };
+      const d = data as {
+        detected: boolean;
+        changeDate: string | null;
+        material: boolean;
+        confidence: "high" | "medium" | "low";
+      };
+      // Only an accepted change point becomes a fact. Keeping the date alone
+      // discarded the very qualifiers that said whether to believe it, so a
+      // rejected candidate read downstream exactly like a confirmed shift.
+      if (!d.detected) return facts;
+      return {
+        ...facts,
+        change_date: d.changeDate,
+        change_point_material: d.material,
+        change_point_confidence: d.confidence
+      };
     }
 
     case "get_account_events": {

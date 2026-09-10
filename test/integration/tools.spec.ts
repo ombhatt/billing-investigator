@@ -373,3 +373,82 @@ describe("result caching within an investigation", () => {
     expect(runner.executions[1].cached).toBe(false);
   });
 });
+
+/**
+ * Flat usage must not surface as a confirmed shift.
+ *
+ * July is a flat month in the seed — the golden change point is August 14 — so
+ * this runs the real tool over real data with nothing to find. It previously
+ * returned `detected: true` with the earliest tied candidate and a `confirmed`
+ * evidence card reading "daily volume moved from N to N (1.00x)".
+ */
+describe("detect_usage_change_point on a month that did not change", () => {
+  it("reports no change point rather than the strongest tie", async () => {
+    const result = await TOOL_HANDLERS.detect_usage_change_point(
+      {
+        accountId: "abc123",
+        serviceName: "Workers",
+        startDate: "2026-07-01",
+        endDate: "2026-07-31"
+      },
+      deps
+    );
+    if ("error" in result) throw new Error(result.error.code);
+
+    const data = result.data as {
+      detected: boolean;
+      changeDate: string | null;
+      candidateDate: string | null;
+      ratio: number | null;
+      material: boolean;
+    };
+
+    expect(data.detected).toBe(false);
+    expect(data.changeDate).toBeNull();
+    expect(data.material).toBe(false);
+    // The scan still reports what it looked at.
+    expect(data.candidateDate).not.toBeNull();
+  });
+
+  it("marks the evidence card not_found and claims no movement", async () => {
+    const result = await TOOL_HANDLERS.detect_usage_change_point(
+      {
+        accountId: "abc123",
+        serviceName: "Workers",
+        startDate: "2026-07-01",
+        endDate: "2026-07-31"
+      },
+      deps
+    );
+    if ("error" in result) throw new Error(result.error.code);
+
+    const card = result.evidence[0];
+    expect(card.status).toBe("not_found");
+    // The claim shape, not the word: "daily volume moved from N to N" is the
+    // assertion that must not appear. The reason may well say what it declined
+    // to accept, and saying "moved 1.00x, inside the threshold" is honest.
+    expect(card.value).not.toMatch(/daily volume moved from/);
+    expect(card.value).toContain("no sustained change");
+    // And no cost-impact card, which only accompanies an accepted shift.
+    expect(result.evidence).toHaveLength(1);
+  });
+
+  it("still finds the August change point", async () => {
+    // The control: the month that did change must still report it.
+    const result = await TOOL_HANDLERS.detect_usage_change_point(
+      {
+        accountId: "abc123",
+        serviceName: "Workers",
+        startDate: "2026-08-01",
+        endDate: "2026-08-31"
+      },
+      deps
+    );
+    if ("error" in result) throw new Error(result.error.code);
+
+    const data = result.data as { detected: boolean; changeDate: string | null };
+    expect(data.detected).toBe(true);
+    expect(data.changeDate).toBe("2026-08-14");
+    expect(result.evidence[0].status).toBe("confirmed");
+  });
+});

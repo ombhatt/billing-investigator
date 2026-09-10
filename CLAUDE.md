@@ -82,36 +82,34 @@ the financial logic provable.
 19. **Update `PROMPT_HISTORY.md`** as work proceeds — it is a submission requirement.
 20. **Record deviations from the PRD** in `ARCHITECTURE.md`, with rationale.
 
-## Review invariants — earned from defects, do not regress
+## Review invariants — earned from defects, mutation-checked, do not regress
 
-Eight external review findings shared one shape: a guarantee checked in the present-and-wrong
-case but not in the absent case. Reasoning for each is in `ARCHITECTURE.md` §9–§16.
+Ten review findings, one shape: a guarantee checked in the present-and-wrong case but not the
+absent one. Reasoning per finding is in `ARCHITECTURE.md` §9–§17.
 
-21. **Absence is not proof.** A check whose inputs are missing has not passed — it has not run.
-    This covers unchecked duplicates, unperformed diagnostics, unverified fixed fees, and a
-    reconciliation whose pipeline stages are gone.
+21. **Absence is not proof, and a candidate is not a finding.** A check whose inputs are gone
+    has not run; a scan's best row is not a detection. Covers unchecked duplicates, unperformed
+    diagnostics, unverified fixed fees, a gutted reconciliation, and flat usage "shifting".
 22. **Overlap is not coverage.** A price version must span a whole period to rate it. Partial
     coverage is a gap; two versions are a price change; neither may silently rate.
-23. **Scope the claim to the diagnostic.** A per-service finding never becomes an invoice-wide
-    one. Facts accumulate across services; they never overwrite.
+23. **Answer the question asked.** A per-service finding never becomes invoice-wide; facts
+    accumulate, never overwrite. Periods the account lacks are reported, never substituted, and
+    a clarification reply is reclassified against the request it answers.
 24. **Required diagnostics are run, not requested.** The server backstops anything the playbook
     marks applicable. Never rely on the model selecting a mandatory check.
-25. **Prose is bounded by evidence.** Narrative may only use amounts, ids, dates and percentages
-    that appear in facts or evidence. Rejection is all-or-nothing (`src/agent/narrativeGuard.ts`).
-26. **State is server-owned and reset is final.** Clients never write investigation state; every
-    reset advances the generation, and a turn commits only into the generation it opened in.
-27. **One investigation per browser.** The `useAgent` name is the Durable Object id — never a
-    shared constant. It separates conversations, not tenants, and authenticates nobody.
-28. **Prove the guard.** Every fix above is mutation-checked: neutering it must fail a test.
+25. **Prose is bounded by evidence.** Narrative may only use amounts, ids, dates, percentages
+    and periods appearing in facts or evidence — naming an uninvestigated month is fabrication
+    even when every figure is real. Rejection is all-or-nothing (`src/agent/narrativeGuard.ts`).
+26. **Sessions are isolated and server-owned.** Clients never write investigation state; each
+    reset advances the generation and a turn commits only into its own; the `useAgent` name is
+    the Durable Object id and must never be a shared constant.
 
 ## Not in P0 — do not add
 
-Cloudflare Workflows, R2, Vectorize, AI Gateway, authentication/RBAC, accounts other than
-`abc123`, case types other than `invoice_variance`.
+Workflows, R2, Vectorize, AI Gateway, auth/RBAC, accounts beyond `abc123`, non-variance cases.
 
-All P1 (second/third accounts, escalation export, AI Gateway, cost chart) and all P2 (production
-APIs, approvals, Slack/email, forecasting, contract ingestion, vector search) are out of scope
-until every P0 box is checked.
+All P1 (more accounts, escalation export, AI Gateway, cost chart) and P2 (production APIs,
+approvals, Slack/email, forecasting, contract ingestion, vector search) wait until P0 is done.
 
 > "R2" and "D1" appear as synthetic **invoice line items** in seeded data. The R2 product is not
 > used as infrastructure. D1 is required infrastructure.
@@ -125,8 +123,11 @@ variance_cents           = 482000       exact_duplicate_count    = 0
 workers_variance_cents   = 464000       probable_duplicate_count = 0
 workers_ai_variance_cents= 18000        reconciliation_status    = passed
 price_changed            = false        explained_percent        = 100
-                                        confidence               = high
+change_point_material    = true         confidence               = high
+change_point_confidence  = high
 ```
+
+`change_date` is set only for an **accepted** change point; flat usage leaves all three null.
 
 Tests assert these structured facts, never LLM prose.
 

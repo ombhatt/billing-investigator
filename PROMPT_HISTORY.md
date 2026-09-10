@@ -795,3 +795,37 @@ have been wrong.
 there is no DOM test setup; comments are stripped before scanning, because the
 comment explaining the rule has to name the identifier the rule is about.
 Mutation-checked: putting the element back fails it.
+
+---
+
+### Review finding 10 (P1) — flat usage produces a confirmed change date
+
+> A constant 31-day series returns detected: true and 2026-08-08, despite ratio
+> 1 and material: false.
+
+Reproduced exactly, including the date. The scan always yields a best row, and
+that was returned as `detected: true` unconditionally; on flat data every
+candidate ties at ratio 1.00 and the earliest tie won.
+
+The damage was done one layer up. `applyToolFacts` kept only `changeDate` and
+dropped `ratio`, `material` and `confidence` — the very qualifiers that said not
+to believe it — so a rejected candidate reached the summary indistinguishable
+from a real shift, and `get_account_events`, anchored on `facts.change_date`,
+manufactured an event correlation for a change that never happened.
+
+Detection is now an acceptance rather than a ranking: the ratio must depart from
+the baseline materially, in either direction, since a sustained fall is as real
+a change point as a rise. A rejection still reports its candidate, ratio and
+reason, so "no change point" is an answer rather than a silence. The qualifiers
+travel with the date on all three paths.
+
+Adding two fields to the fact block broke all three golden assertions at once —
+the cross-path equality check doing its job.
+
+394 tests, up from 383. Mutation-checked twice: accepting every candidate again
+fails seven, and letting facts keep the date regardless of acceptance fails one.
+Golden facts unchanged apart from the two new qualifiers, both of which the
+August 14 change point satisfies.
+
+Also rewrote CLAUDE.md rules 21, 23, 25 and 26 to carry findings 9 and 10 while
+staying inside the 150-line limit from PROMPT 1 — now 149.

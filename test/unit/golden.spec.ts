@@ -29,6 +29,10 @@ describe("golden fact block", () => {
       workers_ai_variance_cents: 18_000,
       price_changed: false,
       change_date: "2026-08-14",
+      // The change point was accepted, and these record on what basis. A
+      // rejected candidate leaves all three null rather than the date alone.
+      change_point_material: true,
+      change_point_confidence: "high",
       correlated_event_id: "dep-1842",
       exact_duplicate_count: 0,
       probable_duplicate_count: 0,

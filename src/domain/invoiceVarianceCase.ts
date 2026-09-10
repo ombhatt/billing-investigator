@@ -154,7 +154,15 @@ export function goldenFacts(input: InvoiceVarianceInput) {
     workers_variance_cents: service("Workers")?.varianceCents ?? 0,
     workers_ai_variance_cents: service("Workers AI")?.varianceCents ?? 0,
     price_changed: analysis.priceChanged,
+    // The qualifiers travel with the date on every path. Detection already
+    // nulls the date when the candidate was rejected, so these follow it.
     change_date: analysis.changePoint.changeDate,
+    change_point_material: analysis.changePoint.detected
+      ? analysis.changePoint.material
+      : null,
+    change_point_confidence: analysis.changePoint.detected
+      ? analysis.changePoint.confidence
+      : null,
     correlated_event_id: analysis.correlatedEvents[0]?.event.eventId ?? null,
     exact_duplicate_count: analysis.duplicates.exactCount,
     probable_duplicate_count: analysis.duplicates.probableCount,

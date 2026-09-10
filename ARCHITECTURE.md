@@ -706,3 +706,41 @@ Two details that matter in the parsing: a full `2026-08-14` must not be read as
 the period `2026-08`, or the golden narrative would be flagged on every run; and
 "may" is only a month when a year sits beside it, or "this may indicate" becomes
 a violation.
+
+## 18. Addendum: a scan candidate is not a change point
+
+Review found that constant usage produced a confirmed usage shift.
+
+The scan always yields a best row. That was being returned as `detected: true`
+unconditionally, so a flat 31-day series — every candidate tied at ratio 1.00 —
+resolved to the earliest tie and reported:
+
+```
+2026-08-08: daily volume moved from 1,000 to 1,000 (1.00x)   [confirmed]
+```
+
+Nothing in the pipeline disagreed, because the qualifiers that said not to
+believe it never travelled with the date. `applyToolFacts` kept `changeDate` and
+discarded `ratio`, `material` and `confidence`, so downstream a rejected
+candidate was indistinguishable from a real shift. The summary asserted "Usage
+shifted on 2026-08-08", and `get_account_events` — whose window is anchored on
+`facts.change_date` — then produced an operational-event correlation for a
+change that had not happened.
+
+Detection is now an acceptance, not a ranking. A change point is accepted when
+the post/pre ratio departs from the baseline by the material factor in either
+direction; a sustained fall is as real a change point as a rise, even though
+only a rise carries a positive cost impact. A rejected scan still reports what
+it looked at — `candidateDate`, the ratio, the points evaluated, and a reason
+naming the candidate it declined — so "no change point" is an answer rather than
+a silence.
+
+The qualifiers now travel with the date on all three paths (domain case, tool
+runner, agent). Adding `change_point_material` and `change_point_confidence` to
+the fact block broke all three golden assertions at once, which is the
+cross-path equality check behaving exactly as intended.
+
+The shape is the one rule 21 already names, in a new place: a value that exists
+is not a value that means something. The flat-series test that already existed
+checked `material` and stopped there, never asking what the layers above did
+with a date they should never have been given.
