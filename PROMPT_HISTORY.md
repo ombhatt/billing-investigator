@@ -631,3 +631,38 @@ invoice merely for existing, because they are static there.
 
 315 tests, up from 302. Mutation-checked: removing the subscription comparison
 fails six, including the end-to-end unauthorised-fee case.
+
+### Review finding 7 — 2026-09-10 · Claude Code (Opus 5)
+
+**P1: a partially effective price was applied to a whole month.** Probe:
+
+```
+ACCEPTED  covers whole month (control)  -> 2026-01-01..open
+ACCEPTED  STARTS LATE  (Aug 14 onward)  -> rated Aug 1-31
+ACCEPTED  ENDS EARLY   (until Aug 10)   -> rated Aug 1-31
+ACCEPTED  WINDOW ONLY  (Aug 10-20)      -> rated Aug 1-31
+```
+
+A contract effective for eleven days priced all thirty-one. `effectivePrice`
+required exactly one *overlapping* version and I had read overlap as coverage.
+
+Added `covers()` — starts on or before the window opens, still in force when it
+closes — and `effectivePrice` now throws when the sole candidate fails it,
+naming the version and its dates so the gap is diagnosable rather than silent.
+`coverageGap()` reports the same without throwing, and `get_price_versions`
+surfaces it as a data limitation.
+
+Worth noting the second half: **invoice generation had its own copy of the
+overlap filter**, so the same defect existed in two places independently and
+fixing one would have left the other. `generateRatedCharges` now calls
+`effectivePrice` rather than repeating the logic — the duplication was the
+reason the bug could hide twice.
+
+The taxonomy is now explicit: one spanning version rates; two versions are a
+price change; one non-spanning version is a coverage gap; none is no price. The
+middle case is the one that had been collapsing into the first.
+
+333 tests, up from 315. Mutation-checked: accepting overlap as coverage again
+fails six, including invoice generation and reconciliation. Golden facts
+unchanged — the seeded Workers and Workers AI versions both run from
+2026-01-01 with no end, so they cover every period.

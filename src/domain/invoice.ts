@@ -1,6 +1,6 @@
 import { sumCents } from "./money.js";
 import { periodEnd, periodStart } from "./period.js";
-import { rateUsage } from "./rating.js";
+import { effectivePrice, rateUsage } from "./rating.js";
 import type {
   DailyUsage,
   Invoice,
@@ -42,18 +42,10 @@ export function generateRatedCharges(
 
   return meteredServices(daily).map((serviceName) => {
     const consumed = consumedInPeriod(daily, serviceName, period);
-    const applicable = prices.filter(
-      (p) =>
-        p.serviceName === serviceName &&
-        p.effectiveFrom <= to &&
-        (p.effectiveTo === null || p.effectiveTo >= from)
-    );
-    if (applicable.length !== 1) {
-      throw new Error(
-        `expected exactly one price version for ${serviceName} in ${period}, found ${applicable.length}`
-      );
-    }
-    const rated = rateUsage(consumed, applicable[0]);
+    // Shares effectivePrice rather than repeating an overlap filter: the
+    // duplicate here had the same defect, accepting a version that covered only
+    // part of the period.
+    const rated = rateUsage(consumed, effectivePrice(prices, serviceName, from, to));
 
     return {
       ratedChargeId: `rc-${accountId}-${serviceName.toLowerCase().replace(/\s+/g, "-")}-${period}`,

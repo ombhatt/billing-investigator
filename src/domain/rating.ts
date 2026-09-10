@@ -58,9 +58,24 @@ export function priceVersionsOverlapping(
 }
 
 /**
- * The single price version in force for a service across a window.
- * Throws when the window straddles a price change, since P0 rating assumes one
- * effective version per period and silently picking one would be wrong.
+ * True when a version is in force for the whole window, not merely part of it.
+ *
+ * Overlap is not coverage. Review showed a version effective from August 14
+ * being used to rate August 1-31: it overlapped the month, so it was selected,
+ * and the first thirteen days were priced by a contract that did not yet apply.
+ */
+export function covers(price: PriceVersion, from: IsoDate, to: IsoDate): boolean {
+  const startedInTime = price.effectiveFrom <= from;
+  const stillInForce = price.effectiveTo === null || price.effectiveTo >= to;
+  return startedInTime && stillInForce;
+}
+
+/**
+ * The single price version in force across the whole window.
+ *
+ * Throws when the window straddles a price change, since P0 rates one version
+ * per period, and equally when the sole candidate leaves any of the window
+ * uncovered — a partial contract cannot price a full month.
  */
 export function effectivePrice(
   prices: PriceVersion[],
@@ -77,7 +92,29 @@ export function effectivePrice(
       `${matches.length} price versions for ${serviceName} over ${from}..${to}; P0 rates one version per period`
     );
   }
-  return matches[0];
+  const only = matches[0];
+  if (!covers(only, from, to)) {
+    throw new Error(
+      `price version ${only.priceVersionId} covers ${only.effectiveFrom}..${only.effectiveTo ?? "open"}, ` +
+        `which does not span ${from}..${to} for ${serviceName}`
+    );
+  }
+  return only;
+}
+
+/** Any part of the window with no price version in force. */
+export function coverageGap(
+  prices: PriceVersion[],
+  serviceName: string,
+  from: IsoDate,
+  to: IsoDate
+): boolean {
+  const matches = priceVersionsOverlapping(prices, serviceName, from, to);
+  if (matches.length === 0) return true;
+  // P0 rates one version per period, so a single covering version is the only
+  // shape that leaves no gap. Multiple versions are reported as a price change
+  // rather than a gap.
+  return matches.length === 1 && !covers(matches[0], from, to);
 }
 
 /** True when more than one version is in force across the window. PRD §11.5. */

@@ -537,3 +537,41 @@ cannot be authorised must not be called explained.
 They do not fail the golden invoice merely for existing, since they are static
 there. The distinction is between *a charge we can check and did* and *a charge
 we cannot check and have said so about*.
+
+---
+
+## 15. Addendum: overlap is not coverage
+
+Found in review after M5, alongside §9–§14.
+
+`effectivePrice` required exactly one *overlapping* price version, not one that
+covered the window. A sole version effective from August 14 therefore rated
+August 1-31: the first thirteen days were priced by a contract that did not yet
+apply. A version ending early, or sitting only in the middle of the month, was
+accepted the same way.
+
+Invoice generation had its own copy of the overlap filter, so the same defect
+existed in two places independently — which is why `generateRatedCharges` now
+calls `effectivePrice` instead of repeating the logic.
+
+**Now:** `covers()` requires the version to start on or before the window opens
+and to remain in force until it closes. `effectivePrice` throws when the sole
+candidate does not, naming the version and its dates:
+
+```
+price version price-workers-2026-01 covers 2026-08-14..open,
+which does not span 2026-08-01..2026-08-31 for Workers
+```
+
+`coverageGap()` reports the same condition without throwing, and
+`get_price_versions` surfaces it as a data limitation so an operator sees that
+part of the window has no contracted price.
+
+The distinction the code now makes explicit:
+
+| Situation | Treated as |
+|---|---|
+| one version spanning the window | rate normally |
+| two versions in the window | a price change (PRD §11.5) |
+| one version not spanning the window | a coverage gap — refuse to rate |
+| no version | no price — refuse to rate |

@@ -36,12 +36,22 @@ export const getPriceVersions = createTool(
     const priceChanged = versions.length > 1;
     const window = `${startDate} to ${endDate}`;
 
+    // Overlap is not coverage: a sole version starting mid-window leaves the
+    // earlier days unpriced, and rating would silently apply it to all of them.
+    const gap =
+      versions.length === 1 &&
+      !(
+        versions[0].effectiveFrom <= startDate &&
+        (versions[0].effectiveTo === null || versions[0].effectiveTo >= endDate)
+      );
+
     return {
       data: {
         serviceName,
         startDate,
         endDate,
         priceChanged,
+        coverageGap: gap,
         versions: versions.map((v) => ({
           priceVersionId: v.priceVersionId,
           includedQuantity: v.includedQuantity,
@@ -80,10 +90,18 @@ export const getPriceVersions = createTool(
           status: "confirmed" as const
         }))
       ],
-      dataLimitations:
-        versions.length === 0
+      dataLimitations: [
+        ...(versions.length === 0
           ? [`No price version covers ${serviceName} between ${startDate} and ${endDate}.`]
-          : []
+          : []),
+        ...(gap
+          ? [
+              `The only ${serviceName} price version is effective ${versions[0].effectiveFrom}` +
+                ` to ${versions[0].effectiveTo ?? "open"}, which does not span ${window}.` +
+                " Part of this window has no contracted price."
+            ]
+          : [])
+      ]
     };
   }
 );
