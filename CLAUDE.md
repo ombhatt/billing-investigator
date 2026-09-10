@@ -82,6 +82,28 @@ the financial logic provable.
 19. **Update `PROMPT_HISTORY.md`** as work proceeds — it is a submission requirement.
 20. **Record deviations from the PRD** in `ARCHITECTURE.md`, with rationale.
 
+## Review invariants — earned from defects, do not regress
+
+Eight external review findings shared one shape: a guarantee checked in the present-and-wrong
+case but not in the absent case. Reasoning for each is in `ARCHITECTURE.md` §9–§16.
+
+21. **Absence is not proof.** A check whose inputs are missing has not passed — it has not run.
+    This covers unchecked duplicates, unperformed diagnostics, unverified fixed fees, and a
+    reconciliation whose pipeline stages are gone.
+22. **Overlap is not coverage.** A price version must span a whole period to rate it. Partial
+    coverage is a gap; two versions are a price change; neither may silently rate.
+23. **Scope the claim to the diagnostic.** A per-service finding never becomes an invoice-wide
+    one. Facts accumulate across services; they never overwrite.
+24. **Required diagnostics are run, not requested.** The server backstops anything the playbook
+    marks applicable. Never rely on the model selecting a mandatory check.
+25. **Prose is bounded by evidence.** Narrative may only use amounts, ids, dates and percentages
+    that appear in facts or evidence. Rejection is all-or-nothing (`src/agent/narrativeGuard.ts`).
+26. **State is server-owned and reset is final.** Clients never write investigation state; every
+    reset advances the generation, and a turn commits only into the generation it opened in.
+27. **One investigation per browser.** The `useAgent` name is the Durable Object id — never a
+    shared constant. It separates conversations, not tenants, and authenticates nobody.
+28. **Prove the guard.** Every fix above is mutation-checked: neutering it must fail a test.
+
 ## Not in P0 — do not add
 
 Cloudflare Workflows, R2, Vectorize, AI Gateway, authentication/RBAC, accounts other than

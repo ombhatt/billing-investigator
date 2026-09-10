@@ -165,13 +165,15 @@ rated_charge_price_version         charge cites the version in force
 recomputed charge        vs  stored rated charge     (cents)
 stored rated charge      vs  invoice line            (cents)
 invoice_line_linkage               each usage line references a real charge
+fixed_fee_vs_subscription          each fixed line matches its subscription
+subscription_active_for_period     that subscription was active in the period
 invoice lines            vs  invoice subtotal        (cents)
 invoice components       vs  invoice total           (cents)
 ```
 
-Zero tolerance — a one-cent gap fails. Six of these were added after review; see
-§10. Twenty-two tests corrupt or remove one thing each and assert the specific
-boundary that should notice it does.
+Zero tolerance — a one-cent gap fails. Eight of these were added after review;
+see §10 and §14. Twenty-two tests corrupt or remove one thing each and assert
+the specific boundary that should notice it does.
 
 ---
 
@@ -277,9 +279,10 @@ Not implemented; this is where it would go next.
 1. **Replace the synthetic adapter.** `domain/billableUsageView.ts` already
    emits public billable-usage field shapes, marking the seam where read-only
    billing, contract, deployment and support connectors would attach.
-2. **Per-investigation sessions and authorization.** Today one shared demo
-   session and one bound account. Production needs enterprise RBAC and
-   account-level authorization at the routing layer.
+2. **Authorization.** Conversations are now separated per browser (§16), but the
+   session id is an opaque label rather than an identity: it authenticates
+   nobody and every visitor still reads the one bound account. Production needs
+   enterprise RBAC and account-level authorization at the routing layer.
 3. **Encrypt and minimise persisted customer data**, with retention on the
    durable object.
 4. **Human approval** before case creation or any financial remediation — the

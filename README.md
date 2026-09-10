@@ -23,7 +23,8 @@ it runs a bounded diagnostic playbook rather than chatting over billing records:
 5. Concludes, with a confidence rating it did not choose
 
 The demo question resolves the full $4,820 variance to the cent, in about
-15 seconds and nine tool calls.
+twenty seconds and eleven tool calls — nine distinct tools, two of which run
+once per metered service.
 
 ### The design decision that matters
 
@@ -85,7 +86,7 @@ npm run investigate             # the same facts, through the 9 tools against D1
 ```bash
 npm run typecheck
 npm run lint
-npm test                        # 233 tests
+npm test                        # 353 tests
 npm run test:unit               # domain only, plain Node
 npm run test:integration        # tools + agent, Workers runtime
 npm run build
@@ -126,7 +127,7 @@ npm run deploy
 | Usage change date | 2026-08-14 |
 | Correlated event | `dep-1842` (`edge-router-v3`) — correlation, not cause |
 | Duplicates | 0 exact, 0 probable |
-| Reconciliation | passed at all four boundaries |
+| Reconciliation | passed at all twelve boundaries |
 | Variance explained | 100% |
 | Confidence | high |
 
@@ -134,8 +135,13 @@ npm run deploy
 from persisted evidence with **no new tool calls**. Refresh the page and the
 investigation is restored from the Durable Object.
 
-**Reset demo** clears the conversation and investigation record. It never
-touches seeded billing data — every tool is read-only.
+**Reset demo** clears the conversation and investigation record, and ends any
+turn still running — a reset investigation cannot be written back by work that
+was already in flight. It never touches seeded billing data; every tool is
+read-only.
+
+Each browser gets its own investigation, so two people can read the deployed
+demo at once without sharing a conversation.
 
 ---
 
@@ -181,8 +187,10 @@ charts, AI Gateway, Workflows, Vectorize, R2, authentication, RBAC, multi-tenanc
 
 **Known limitations:**
 
-- The demo session is shared. Everyone opening the deployed URL lands in the same
-  conversation; a real deployment would key the session per investigation.
+- Conversations are separated per browser, but tenancy is not: every visitor
+  investigates the same seeded `abc123`, and the session id is an opaque label,
+  not authentication. Production needs account-level authorization at the
+  routing layer.
 - Once an investigation completes, later questions are treated as follow-ups.
   Starting a new investigation requires **Reset demo**.
 - `get_usage_timeseries` reports the zone split of a period's usage, not of the
@@ -195,7 +203,9 @@ charts, AI Gateway, Workflows, Vectorize, R2, authentication, RBAC, multi-tenanc
 ## Further reading
 
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — components, agent loop, data lineage,
-  security boundary, state ownership, failure modes, production evolution
+  security boundary, state ownership, failure modes, production evolution.
+  §9–§16 are addenda: one per external code-review finding, each recording what
+  the defect was and why the fix takes the shape it does.
 - [`docs/PRD.md`](./docs/PRD.md) — the product requirements this was built against
 - [`docs/BUILD_PLAN.md`](./docs/BUILD_PLAN.md) — how P0 was scoped down
 - [`docs/BUILD_STATUS.md`](./docs/BUILD_STATUS.md) — milestone status, spike
