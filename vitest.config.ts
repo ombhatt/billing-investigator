@@ -32,10 +32,19 @@ export default defineConfig({
             // require a Cloudflare login plus network access. Tool tests need
             // D1 only.
             remoteBindings: false,
+            // The main worker is loaded so a test can open a real agent
+            // WebSocket and attempt a forged state write end to end.
+            main: "./src/server.ts",
             miniflare: {
               compatibilityDate: "2026-06-11",
               compatibilityFlags: ["nodejs_compat"],
               d1Databases: ["DB"],
+              durableObjects: {
+                BillingInvestigatorAgent: {
+                  className: "BillingInvestigatorAgent",
+                  useSQLite: true
+                }
+              },
               bindings: { TEST_MIGRATIONS: migrations }
             }
           })

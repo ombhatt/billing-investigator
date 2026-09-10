@@ -388,3 +388,43 @@ exact local and deploy commands, the demo and its expected figures, scope and
 known limitations) and `ARCHITECTURE.md` (component diagram, agent loop, the
 model seam and why it exists, state machine, data lineage, tool-security
 boundary, state ownership, failure-mode table, tradeoffs, production evolution).
+
+### Review finding 1 — 2026-09-09 · Claude Code (Opus 5)
+
+**P0: browser clients could replace authoritative investigation state.** Verified
+against the installed SDK before acting, and the finding was correct.
+
+Three facts line up in `node_modules/agents/dist/src-5W6JNKVb.js`:
+`isStateUpdateMessage` accepts `cf_agent_state` from a connection;
+`_setStateInternal` persists to `cf_agents_state` and broadcasts to every other
+connection; and `validateStateChange(_nextState, _source) {}` is a no-op default
+I never overrode. `isConnectionReadonly` is likewise false unless an internal
+flag is set. So a browser could publish a fabricated `completed` investigation
+with invented totals and `invoiceAppearsCorrect: true`, and follow-ups would
+answer from it. That breaks CLAUDE.md rules 1, 6, 9 and 12 at once.
+
+Root cause was mine: Reset called `agent.setState()` from the client, which
+required that write channel.
+
+Fixed by making state server-owned: `validateStateChange` throws for any source
+other than `"server"`, and Reset became a server-owned `POST
+…/reset-investigation` handled by the agent's `onRequest`.
+
+Two things worth recording:
+
+1. **My first fix had a bug of its own.** `agent.getHttpUrl()` carries a query
+   string, so string concatenation produced
+   `…/demo-abc123?_pk=…/reset-investigation` — the segment landed inside the
+   query, the server saw a pathname ending in `demo-abc123`, and the request
+   fell through silently. Caught by checking the actual request URL in the
+   browser rather than assuming the fix worked. Now built with the URL API.
+
+2. **The regression test is the one the reviewer asked for, not a proxy for it.**
+   Enabling `main` in the integration project let a test open two real agent
+   WebSockets, send a forged record from one, and assert the attacker gets
+   `cf_agent_state_error`, the other client receives nothing carrying it, and a
+   fresh connection still syncs untouched state. Removing the guard fails it.
+
+Also verified manually in the browser: the forged frame is rejected, `FORGED`
+appears nowhere in another client's DOM, and Reset still clears both the
+conversation and the record. 240 tests; typecheck, lint and build green.

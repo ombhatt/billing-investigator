@@ -5,6 +5,7 @@ import { createWorkersAI } from "workers-ai-provider";
 import { answerFollowUp } from "./agent/followUp.js";
 import { newInvestigation, runInvestigationTurn } from "./agent/loop.js";
 import { DeterministicModelClient, type ModelClient } from "./agent/modelClient.js";
+import { assertServerOwnedState } from "./agent/stateOwnership.js";
 import { renderSummary } from "./agent/summary.js";
 import { isTerminal } from "./agent/stateMachine.js";
 import type { InvestigationRecord } from "./agent/types.js";
@@ -33,6 +34,29 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
   // restores plan, evidence and summary after a refresh. Bulk tool payloads are
   // written to this.sql instead so state stays small.
   initialState: AgentState = { investigation: null };
+
+  /**
+   * The SDK's default accepts client-sent state, persists it and broadcasts it
+   * to every other connection. Investigation facts, the completion verdict and
+   * the confidence rating are all server-computed, so a client write is always
+   * either a forgery attempt or a bug. Reject both.
+   */
+  validateStateChange(_nextState: AgentState, source: unknown): void {
+    assertServerOwnedState(source);
+  }
+
+  /** Server-owned reset: the client asks, it does not write the state itself. */
+  async onRequest(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (
+      request.method === "POST" &&
+      url.pathname.split("/").pop() === "reset-investigation"
+    ) {
+      this.setState({ investigation: null });
+      return new Response(null, { status: 204 });
+    }
+    return super.onRequest(request);
+  }
 
   private modelClient(): ModelClient {
     try {

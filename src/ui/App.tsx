@@ -92,14 +92,27 @@ export default function App() {
     [canSend, sendMessage]
   );
 
-  const resetDemo = useCallback(() => {
+  const resetDemo = useCallback(async () => {
     // Clears the conversation and this agent's investigation record only.
     // Seeded billing data in D1 is never touched — every tool is read-only.
+    //
+    // The record is cleared by asking the agent rather than calling setState
+    // here: investigation state is server-owned and the agent rejects client
+    // writes outright.
     clearHistory();
-    agent.setState({ investigation: null });
     setTab("plan");
     autoTab.current = true;
     setLastQuestion(null);
+    try {
+      // getHttpUrl() carries a query string, so the segment has to be appended
+      // to the pathname — concatenating puts it inside the query and the
+      // request silently falls through to the SDK's own handler.
+      const target = new URL(agent.getHttpUrl());
+      target.pathname = `${target.pathname.replace(/\/+$/, "")}/reset-investigation`;
+      await fetch(target, { method: "POST" });
+    } catch {
+      // The conversation is already cleared; the record clears on the next ask.
+    }
   }, [agent, clearHistory]);
 
   const selectTab = useCallback((next: TabId) => {

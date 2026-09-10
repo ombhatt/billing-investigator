@@ -287,3 +287,41 @@ Not implemented; this is where it would go next.
    what it sees and how sensitive data is handled.
 8. **Stronger anomaly detection** once labelled history exists; the transparent
    median scan is chosen for explainability, not accuracy.
+
+---
+
+## 9. Addendum: investigation state is server-owned
+
+Found in review after M5.
+
+The Agents SDK accepts `cf_agent_state` messages from any connected client and,
+with its default no-op `validateStateChange`, persists the payload to
+`cf_agents_state` and broadcasts it to every other connection. Nothing about
+that is hidden — it is a reasonable default for collaborative agent state — but
+it is the wrong default here.
+
+This application's state is not collaborative. The investigation record carries
+the totals, the completion verdict and the confidence rating. Left unguarded, a
+browser could publish a fabricated `completed` investigation with invented
+figures and `invoiceAppearsCorrect: true`, have it broadcast to every other
+viewer, and have follow-ups answer from it as though it were evidence — routing
+around the deterministic completion criteria entirely.
+
+The original cause was ours: the Reset button called `agent.setState()` from the
+client, which required that write channel to be open.
+
+**Now:**
+
+- `validateStateChange` throws for any source other than `"server"`
+  (`src/agent/stateOwnership.ts`). The SDK responds `cf_agent_state_error` and
+  neither persists nor broadcasts the update.
+- Reset is a server-owned operation: the client `POST`s to
+  `…/reset-investigation` on the agent, and the agent clears the record itself.
+- `test/integration/stateOwnership.spec.ts` opens two real agent WebSockets,
+  sends a forged `completed` record from one, and asserts the attacker is
+  rejected, the other client receives nothing carrying it, and a fresh
+  connection still syncs the untouched state. Removing the guard fails that test.
+
+The general rule this is an instance of: **state a client can write is not
+evidence.** Anything the product asserts as fact must be computed server-side
+and must not be reachable through a client-writable channel.
