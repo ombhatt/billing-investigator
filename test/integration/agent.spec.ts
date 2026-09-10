@@ -379,6 +379,69 @@ describe("the agent cannot overstate its findings", () => {
     expect(record.summary!.assessment).toContain("not a financial certification");
   });
 
+  it("does not show prose containing a fabricated amount or identifier", async () => {
+    // Review demonstrated this exact sentence reaching the user unchanged while
+    // the structured facts stayed correct.
+    const model = new ScriptedModel({
+      prose:
+        "The invoice rose by $99,999 because dep-FAKE caused duplicate charges. " +
+        "The invoice is correct."
+    });
+    const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
+
+    const shown = record.summary!.finding;
+    expect(shown).not.toContain("$99,999");
+    expect(shown).not.toContain("dep-FAKE");
+    expect(shown).not.toMatch(/caused/i);
+    expect(record.summary!.generatedBy).toBe("deterministic_fallback");
+    // The verified facts were never in doubt; the prose was.
+    expect(record.facts.variance_cents).toBe(482_000);
+  });
+
+  it("does not let prose claim correctness when the investigation is unresolved", async () => {
+    await env.DB.prepare(
+      "UPDATE invoices SET total_cents = total_cents + 100 WHERE period = ?"
+    )
+      .bind("2026-08")
+      .run();
+
+    const model = new ScriptedModel({
+      prose: "Everything checks out and the invoice is correct."
+    });
+    const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
+
+    expect(record.state).toBe("unresolved");
+    expect(record.summary!.finding).not.toMatch(/invoice is correct/i);
+    expect(record.summary!.generatedBy).toBe("deterministic_fallback");
+  });
+
+  it("holds follow-up answers to the same evidence boundary", async () => {
+    const honest = new ScriptedModel();
+    const record = await runInvestigationTurn(fresh(), QUESTION, deps(honest));
+
+    const liar = new ScriptedModel({
+      prose: "Yes — dep-FAKE duplicated $99,999 of usage."
+    });
+    const followUp = await answerFollowUp(record, "were we charged twice?", liar);
+
+    expect(followUp.text).not.toContain("$99,999");
+    expect(followUp.text).not.toContain("dep-FAKE");
+    // Falls back to the persisted, verified summary.
+    expect(followUp.text).toContain("Finding.");
+  });
+
+  it("still shows evidence-backed model prose", async () => {
+    const model = new ScriptedModel({
+      prose: "August rose by $4,820.00, driven by Workers volume."
+    });
+    const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
+
+    expect(record.summary!.generatedBy).toBe("model");
+    expect(record.summary!.finding).toBe(
+      "August rose by $4,820.00, driven by Workers volume."
+    );
+  });
+
   it("describes the deployment as correlated, never causal", async () => {
     const model = new ScriptedModel({ throwOn: "explain" });
     const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));

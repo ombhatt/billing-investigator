@@ -5,6 +5,7 @@ import { isFailure, type ToolResult } from "../types/tools.js";
 import { assessCompletion } from "./completion.js";
 import type { ModelClient, PlanUpdate } from "./modelClient.js";
 import { planUpdateSchema } from "./modelClient.js";
+import { safeNarrative } from "./narrativeGuard.js";
 import {
   CONDITIONAL_STEPS,
   initialHypotheses,
@@ -223,25 +224,6 @@ function applyHypotheses(
   };
 }
 
-/**
- * The model contributes the finding sentence only; evidence, assessment and
- * next step are generated deterministically and appended.
- *
- * If it writes those sections anyway they would be duplicated in the reply and,
- * worse, could contradict the computed assessment — an early live run produced
- * "no further investigation is required" next to a recommendation to follow up.
- * When that happens the deterministic finding is used instead.
- */
-function usableFinding(prose: string, fallback: string): string {
-  const trimmed = prose
-    .trim()
-    .replace(/^\**\s*Finding\s*[:.]\s*/i, "")
-    .trim();
-  if (trimmed.length === 0) return fallback;
-  if (/recommended next step|assessment\s*:/i.test(trimmed)) return fallback;
-  return trimmed;
-}
-
 /** Runs the invoice-variance playbook for one user turn. */
 export async function runInvestigationTurn(
   input: InvestigationRecord,
@@ -424,9 +406,18 @@ export async function runInvestigationTurn(
       blockers: assessment.blockers,
       mode: "summary"
     });
-    const finding = usableFinding(prose, fallback.finding);
-    if (finding !== fallback.finding) {
-      summary = { ...fallback, finding, generatedBy: "model" };
+    // Prose is only shown when every figure and identifier in it already
+    // appears in verified evidence. One fabricated number discredits the whole
+    // sentence, so it is all-or-nothing.
+    const narrative = safeNarrative(prose, fallback.finding, {
+      facts: record.facts,
+      evidence: record.evidence,
+      invoiceAppearsCorrect: assessment.invoiceAppearsCorrect,
+      confidence: assessment.confidence,
+      rejectGeneratedSections: true
+    });
+    if (narrative.usedModel) {
+      summary = { ...fallback, finding: narrative.text, generatedBy: "model" };
     }
   } catch {
     // Keep the deterministic summary. PRD §8.5, §19.

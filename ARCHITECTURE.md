@@ -370,3 +370,54 @@ amounts still have to tie into the subtotal, and a test covers both halves.
 PRD §12.9's four required boundaries are all still present; the additions are
 strictly stronger. The golden scenario reconciles with all eighteen checkpoints
 at zero, and the §20.4 fact block is unchanged.
+
+---
+
+## 11. Addendum: prose is held to the evidence
+
+Found in review after M5, alongside §9 and §10.
+
+The model writes the sentence a billing operator reads and pastes into a
+customer email. Guarding the structured facts is therefore not enough: a
+fabricated sentence above a correct fact table is still a wrong answer.
+
+The original `usableFinding` rejected only empty text and a couple of section
+labels — a guard built for a duplication problem seen live, not for fabrication.
+Review demonstrated all four kinds passing through unchanged:
+
+> "The invoice rose by $99,999 because dep-FAKE caused duplicate charges.
+> The invoice is correct."
+
+an amount absent from evidence, an identifier absent from evidence, causation
+asserted for an event, and a correctness claim the model was not entitled to
+make. Follow-ups accepted any non-empty prose at all.
+
+**The rule now enforced: the model may only restate figures and identifiers that
+already appear in verified evidence.** It still chooses what to say and how to
+phrase it; it does not get to introduce new facts.
+
+`src/agent/narrativeGuard.ts` builds an allowed vocabulary from the fact block
+and the evidence cards, then checks the prose for:
+
+| Check | Rejects |
+|---|---|
+| `unknown_amount` | a `$` figure not in evidence |
+| `unknown_identifier` | a `dep-`/`inv-`/`price-`/`zone-`… id not in evidence |
+| `unknown_percentage`, `unknown_date` | figures never computed |
+| `asserted_causation` | a causal verb and an event id in the same sentence |
+| `unearned_correctness` | a correctness claim when the invoice is not established correct |
+| `confidence_claim` | a confidence level contradicting the computed one |
+| `wrote_generated_sections` | prose writing the deterministic sections |
+
+Rejection is all-or-nothing: one fabricated figure discredits the sentence it
+sits in, so the deterministic finding is shown instead. Summary and follow-up go
+through the same function.
+
+Causation is judged per sentence, so "the rise was caused by higher request
+volume" is fine while "dep-1842 caused the increase" is not. The guard was
+verified against wording captured from a real Workers AI run — a guard that
+rejected genuine output would silently degrade every answer to boilerplate,
+which is why a test pins that exact sentence.
+
+Bare quantities ("1,488 events") are not currently validated; only currency,
+percentages, dates and identifiers are.

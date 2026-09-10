@@ -1,4 +1,5 @@
 import type { ModelClient } from "./modelClient.js";
+import { safeNarrative } from "./narrativeGuard.js";
 import { renderSummary } from "./summary.js";
 import type { InvestigationRecord } from "./types.js";
 
@@ -33,8 +34,19 @@ export async function answerFollowUp(
       blockers: record.blockers,
       mode: "follow_up"
     });
-    if (prose.trim().length > 0) {
-      return { text: prose.trim(), usedEvidenceCount: record.evidence.length };
+    // Follow-ups are held to the same boundary as the summary: a fabricated
+    // figure is no less damaging for arriving in the second answer.
+    const narrative = safeNarrative(prose, renderSummary(record.summary), {
+      facts: record.facts,
+      evidence: record.evidence,
+      invoiceAppearsCorrect: record.summary.invoiceAppearsCorrect,
+      confidence: record.facts.confidence
+    });
+    if (narrative.usedModel) {
+      return {
+        text: narrative.text,
+        usedEvidenceCount: record.evidence.length
+      };
     }
   } catch {
     // Fall through to the persisted summary.
