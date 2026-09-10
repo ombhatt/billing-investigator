@@ -366,7 +366,6 @@ button.secondary {
   gap: 8px;
 }
 .plan__step-label { font-weight: 500; }
-.plan__step-tool { color: var(--muted); }
 .plan__step-outcome { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
 
 .tag {

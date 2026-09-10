@@ -772,3 +772,26 @@ object to. It checked the figures and never checked what the answer was *about*.
 period that was not investigated is rejected like any other fabrication.
 
 378 tests, up from 361. Mutation-checked: removing either guard fails four.
+
+---
+
+### Follow-up — raw tool names in the plan panel
+
+Spotted while verifying finding 9 in production: the Plan tab rendered the
+friendly label and then the raw identifier beside it — `Confirming the account`
+followed by `get_account_context`.
+
+PRD §7.2 asks for "tool names **translated into** user-friendly actions". The
+label was doing the translating and the `<code>` element was undoing it. Removed,
+along with its now-unused style rule.
+
+The complement matters and is now asserted too: PRD §8.3 lists "Source/tool
+name" among the six fields every evidence card must carry, so evidence still
+names its source. The rule is about how a *plan step* is named, not a blanket
+ban on tool names in the UI — a test that simply forbade them everywhere would
+have been wrong.
+
+383 tests, up from 378. Static check in the style of `sqlSafety.spec.ts`, since
+there is no DOM test setup; comments are stripped before scanning, because the
+comment explaining the rule has to name the identifier the rule is about.
+Mutation-checked: putting the element back fails it.

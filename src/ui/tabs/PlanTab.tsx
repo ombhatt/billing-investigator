@@ -5,6 +5,12 @@ import { StepStatusBadge } from "../StatusBadge.js";
  * Shows the playbook steps, their status and a one-line factual outcome.
  * The model's reason for choosing a step is never persisted, so there is
  * nothing here that could leak private reasoning. PRD §7.2, §8.2.
+ *
+ * Steps are named by their friendly label only. PRD §7.2 asks for "tool names
+ * translated into user-friendly actions", and this panel used to print the raw
+ * `get_account_context` beside the translation, which is the untranslated name
+ * the requirement exists to avoid. Evidence cards are the opposite case: §8.3
+ * requires them to name their source tool, and they still do.
  */
 export function PlanTab({
   investigation,
@@ -37,7 +43,6 @@ export function PlanTab({
               <span className="plan__step-label">{step.label}</span>
               <StepStatusBadge status={step.status} />
             </div>
-            <code className="mono plan__step-tool">{step.tool}</code>
             {step.required && <span className="tag">required</span>}
             {step.outcome && <p className="plan__step-outcome">{step.outcome}</p>}
           </li>
