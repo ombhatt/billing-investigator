@@ -17,21 +17,31 @@ export const MIN_EXPLAINED_PERCENT = 95;
  * 5: when consumption materially changes, inspect its time series, change
  * point, operational events and possible duplicates.
  */
-export function applicableDiagnostics(facts: InvestigationFacts): string[] {
+export function applicableDiagnostics(
+  facts: InvestigationFacts,
+  /**
+   * Metered services on the invoice. Price and duplicate findings are stated
+   * invoice-wide, so every metered service has to be checked — review found
+   * both hard-coded to Workers, which missed a Workers AI reprice and a
+   * Workers AI duplicate while asserting neither existed.
+   */
+  meteredServices: string[] = []
+): string[] {
   const required: string[] = [];
+  const perService = (tool: string) =>
+    meteredServices.length === 0
+      ? [tool]
+      : meteredServices.map((service) => `${tool}:${service}`);
 
-  // Any movement at all has to have price ruled in or out.
+  // Any movement at all has to have price ruled in or out, on every service.
   if (facts.variance_cents !== null && facts.variance_cents !== 0) {
-    required.push("get_price_versions");
+    required.push(...perService("get_price_versions"));
   }
 
   // Consumption moved, so its shape, onset and possible duplication matter.
   if (facts.volume_effect_cents !== null && facts.volume_effect_cents !== 0) {
-    required.push(
-      "get_usage_timeseries",
-      "detect_usage_change_point",
-      "check_duplicate_usage"
-    );
+    required.push("get_usage_timeseries", "detect_usage_change_point");
+    required.push(...perService("check_duplicate_usage"));
   }
 
   // Only meaningful once a change point exists to anchor the window.
@@ -57,9 +67,10 @@ export interface CompletionAssessment {
 export function assessCompletion(input: {
   facts: InvestigationFacts;
   completedTools: string[];
+  meteredServices?: string[];
   failedTools: string[];
 }): CompletionAssessment {
-  const { facts, completedTools, failedTools } = input;
+  const { facts, completedTools, failedTools, meteredServices = [] } = input;
   const blockers: string[] = [];
 
   const missingRequired = REQUIRED_TOOLS.filter(
@@ -71,7 +82,7 @@ export function assessCompletion(input: {
 
   // Diagnostics the variance itself makes applicable. The model chooses the
   // order and may add more, but it cannot decide to skip these.
-  const missingDiagnostics = applicableDiagnostics(facts).filter(
+  const missingDiagnostics = applicableDiagnostics(facts, meteredServices).filter(
     (tool) => !completedTools.includes(tool)
   );
   if (missingDiagnostics.length > 0) {
@@ -101,8 +112,12 @@ export function assessCompletion(input: {
   // Only a duplicate check that actually ran can clear duplicates. An
   // unchecked count is absence of evidence, not evidence of absence — it is
   // reported above as a missing diagnostic instead of quietly reading as zero.
+  // Matches both the bare tool and its per-service ids.
+  const ranDuplicateCheck = completedTools.some(
+    (t) => t === "check_duplicate_usage" || t.startsWith("check_duplicate_usage:")
+  );
   const duplicatesChecked =
-    completedTools.includes("check_duplicate_usage") &&
+    ranDuplicateCheck &&
     facts.exact_duplicate_count !== null &&
     facts.probable_duplicate_count !== null;
   const duplicates = duplicatesChecked

@@ -19,7 +19,12 @@ import {
 } from "./playbooks/invoiceVariance.js";
 import { isTerminal, transition } from "./stateMachine.js";
 import { deterministicSummary } from "./summary.js";
-import type { InvestigationRecord, PlanStep, StepStatus } from "./types.js";
+import type {
+  InvestigationRecord,
+  PlanStep,
+  ServiceEffectSummary,
+  StepStatus
+} from "./types.js";
 
 export interface LoopDeps {
   runner: ToolRunner;
@@ -39,6 +44,7 @@ export function newInvestigation(
     currentPeriod: null,
     comparisonPeriod: null,
     focusService,
+    serviceEffects: [],
     state: "created",
     clarificationQuestion: null,
     plan: initialPlan(),
@@ -57,21 +63,88 @@ export function newInvestigation(
   };
 }
 
+/** Steps are addressed by id, which for per-service steps includes the service. */
+export function stepId(tool: string, service?: string): string {
+  return service === undefined ? tool : `${tool}:${service}`;
+}
+
 function setStep(
   plan: PlanStep[],
-  tool: string,
+  id: string,
   status: StepStatus,
   outcome: string | null
 ): PlanStep[] {
   return plan.map((step) =>
-    step.tool === tool ? { ...step, status, outcome } : step
+    step.id === id ? { ...step, status, outcome } : step
   );
+}
+
+/**
+ * Price and duplicate checks run once per metered service.
+ *
+ * Review found these hard-coded to Workers while the answer made invoice-wide
+ * claims: a Workers AI reprice and a Workers AI duplicate were both missed
+ * while the summary said pricing was unchanged and no duplicates existed. An
+ * assertion about the invoice has to be backed by a check of the invoice.
+ */
+const PER_SERVICE_TOOLS = ["get_price_versions", "check_duplicate_usage"];
+
+function expandPerServiceSteps(
+  plan: PlanStep[],
+  services: string[]
+): PlanStep[] {
+  const expanded: PlanStep[] = [];
+  for (const step of plan) {
+    if (!PER_SERVICE_TOOLS.includes(step.tool)) {
+      expanded.push(step);
+      continue;
+    }
+    for (const service of services) {
+      expanded.push({
+        ...step,
+        id: stepId(step.tool, service),
+        service,
+        label: `${step.label} — ${service}`
+      });
+    }
+  }
+  return expanded;
+}
+
+/**
+ * Metered services, taken from the decomposition, which sees every service on
+ * the invoice. Fixed-fee lines have no usage to check and are excluded.
+ */
+export function meteredServices(record: InvestigationRecord): string[] {
+  return [...record.serviceEffects]
+    .filter((s) => s.metered)
+    .map((s) => serviceName(s))
+    .sort();
+}
+
+/**
+ * The service to investigate in depth: the largest absolute mover, rather than
+ * a compile-time constant. A hard-coded focus is right only by luck.
+ */
+export function pickFocusService(
+  record: InvestigationRecord,
+  metered: string[]
+): string {
+  const ranked = [...record.serviceEffects]
+    .filter((s) => s.metered)
+    .sort((a, b) => Math.abs(b.totalEffectCents) - Math.abs(a.totalEffectCents));
+  return ranked[0] ? serviceName(ranked[0]) : (metered[0] ?? record.focusService);
+}
+
+function serviceName(effect: { serviceName: string }): string {
+  return effect.serviceName;
 }
 
 /** Tool arguments are built by the server from the investigation record. */
 function inputFor(
   tool: string,
-  record: InvestigationRecord
+  record: InvestigationRecord,
+  service?: string
 ): Record<string, unknown> | null {
   const {
     accountId,
@@ -91,14 +164,22 @@ function inputFor(
     case "compare_invoices":
     case "decompose_variance":
       return { accountId, currentPeriod, comparisonPeriod };
+    // Scoped to the driver: these locate when and where consumption moved.
     case "get_usage_timeseries":
     case "detect_usage_change_point":
-    case "check_duplicate_usage":
       return { accountId, serviceName: focusService, startDate: from, endDate: to };
+    // Run per metered service, since the conclusion is invoice-wide.
+    case "check_duplicate_usage":
+      return {
+        accountId,
+        serviceName: service ?? focusService,
+        startDate: from,
+        endDate: to
+      };
     case "get_price_versions":
       return {
         accountId,
-        serviceName: focusService,
+        serviceName: service ?? focusService,
         startDate: periodStart(comparisonPeriod),
         endDate: to
       };
@@ -152,21 +233,24 @@ function summarise(tool: string, data: unknown): string {
 async function callTool(
   record: InvestigationRecord,
   tool: string,
-  deps: LoopDeps
+  deps: LoopDeps,
+  service?: string
 ): Promise<InvestigationRecord> {
+  const id = stepId(tool, service);
+
   if (record.metrics.toolCalls >= MAX_TOOL_CALLS_PER_TURN) {
     return {
       ...record,
-      plan: setStep(record.plan, tool, "skipped", "tool-call limit reached"),
+      plan: setStep(record.plan, id, "skipped", "tool-call limit reached"),
       blockers: [...new Set([...record.blockers, "tool-call limit reached"])]
     };
   }
 
-  const input = inputFor(tool, record);
+  const input = inputFor(tool, record, service);
   if (input === null) {
     return {
       ...record,
-      plan: setStep(record.plan, tool, "skipped", "prerequisite data missing")
+      plan: setStep(record.plan, id, "skipped", "prerequisite data missing")
     };
   }
 
@@ -194,20 +278,48 @@ async function callTool(
     return {
       ...record,
       metrics,
-      plan: setStep(record.plan, tool, "failed", result.error.code),
-      blockers: [...new Set([...record.blockers, `${tool}: ${result.error.code}`])]
+      plan: setStep(record.plan, id, "failed", result.error.code),
+      blockers: [...new Set([...record.blockers, `${id}: ${result.error.code}`])]
     };
   }
 
   return {
     ...record,
     metrics,
-    plan: setStep(record.plan, tool, "completed", summarise(tool, result.data)),
+    plan: setStep(record.plan, id, "completed", summarise(tool, result.data)),
     evidence: [...record.evidence, ...result.evidence],
+    serviceEffects: captureServiceEffects(record.serviceEffects, tool, result.data),
     facts: applyToolFacts(record.facts, tool, result.data, {
       changeDate: record.facts.change_date
     })
   };
+}
+
+/**
+ * The decomposition is the only place that sees every service on the invoice,
+ * so its per-service breakdown is kept rather than discarded. A metered service
+ * is one with usage quantities; fixed-fee lines have none.
+ */
+function captureServiceEffects(
+  current: ServiceEffectSummary[],
+  tool: string,
+  data: unknown
+): ServiceEffectSummary[] {
+  if (tool !== "decompose_variance") return current;
+  const d = data as {
+    services?: {
+      serviceName: string;
+      currentQuantity: number | null;
+      totalEffectCents: number;
+    }[];
+  };
+  if (!Array.isArray(d.services)) return current;
+
+  return d.services.map((s) => ({
+    serviceName: s.serviceName,
+    metered: s.currentQuantity !== null,
+    totalEffectCents: s.totalEffectCents
+  }));
 }
 
 function applyHypotheses(
@@ -312,6 +424,18 @@ export async function runInvestigationTurn(
     record = await callTool(record, step.tool, deps);
   }
 
+  // 2a. Comparison and decomposition now tell us which services are metered and
+  // which is the actual driver. Both were previously hard-coded to Workers,
+  // which made Workers-only findings read as invoice-wide claims.
+  const metered = meteredServices(record);
+  if (metered.length > 0) {
+    record = {
+      ...record,
+      focusService: pickFocusService(record, metered),
+      plan: expandPerServiceSteps(record.plan, metered)
+    };
+  }
+
   // 3. Bounded planning cycles selecting conditional tools.
   for (let cycle = 0; cycle < MAX_PLANNING_CYCLES_PER_TURN; cycle++) {
     const completed = record.plan
@@ -355,7 +479,15 @@ export async function runInvestigationTurn(
 
     if (selected.length === 0) break;
     for (const tool of selected) {
-      record = await callTool(record, tool, deps);
+      if (PER_SERVICE_TOOLS.includes(tool) && metered.length > 0) {
+        // One call per metered service, so an invoice-wide statement is backed
+        // by a check of the whole invoice.
+        for (const service of metered) {
+          record = await callTool(record, tool, deps, service);
+        }
+      } else {
+        record = await callTool(record, tool, deps);
+      }
     }
     if (update.done) break;
   }
@@ -365,16 +497,19 @@ export async function runInvestigationTurn(
   record = await callTool(record, REQUIRED_RECONCILIATION.tool, deps);
 
   // 5. Server-side completion criteria and deterministic confidence.
+  // Step ids, not tool names, so a per-service check counts only for the
+  // service it actually covered.
   const completedTools = record.plan
     .filter((s) => s.status === "completed")
-    .map((s) => s.tool);
+    .map((s) => s.id);
   const failedTools = record.plan
     .filter((s) => s.status === "failed")
-    .map((s) => s.tool);
+    .map((s) => s.id);
 
   const assessment = assessCompletion({
     facts: record.facts,
     completedTools,
+    meteredServices: metered,
     failedTools
   });
 

@@ -72,7 +72,8 @@ describe("golden investigation through the agent", () => {
 
     expect(record.state).toBe("completed");
     expect(record.blockers).toEqual([]);
-    expect(record.plan.filter((s) => s.status === "completed")).toHaveLength(9);
+    // 11 now: price and duplicate checks run once per metered service.
+    expect(record.plan.filter((s) => s.status === "completed")).toHaveLength(11);
     expect(record.plan.every((s) => s.status === "completed")).toBe(true);
   });
 

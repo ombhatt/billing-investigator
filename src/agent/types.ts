@@ -15,6 +15,8 @@ export type InvestigationState =
 export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
 
 export interface PlanStep {
+  /** Set on steps that run once per metered service. */
+  service?: string;
   id: string;
   tool: string;
   /** User-facing action, never the model's reasoning. PRD §7.2. */
@@ -32,6 +34,18 @@ export interface Hypothesis {
   id: HypothesisId;
   label: string;
   status: HypothesisStatus;
+}
+
+/**
+ * Per-service effects from the decomposition, which sees every service on the
+ * invoice. Used to decide which services need checking and which is the driver
+ * worth investigating in depth.
+ */
+export interface ServiceEffectSummary {
+  serviceName: string;
+  /** False for fixed-fee lines, which have no usage pipeline to check. */
+  metered: boolean;
+  totalEffectCents: number;
 }
 
 export interface RecordedExecution {
@@ -61,6 +75,7 @@ export interface InvestigationRecord {
   currentPeriod: string | null;
   comparisonPeriod: string | null;
   focusService: string;
+  serviceEffects: ServiceEffectSummary[];
   state: InvestigationState;
   clarificationQuestion: string | null;
   plan: PlanStep[];

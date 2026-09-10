@@ -464,3 +464,44 @@ be added to one without the others noticing.
 The model still chooses order, may add further checks, and may argue about what
 it found. It cannot decide that a check the variance makes applicable is
 unnecessary.
+
+---
+
+## 13. Addendum: diagnostic scope must match the claim's scope
+
+Found in review after M5, alongside §9–§12.
+
+`FOCUS_SERVICE` was a compile-time constant, `"Workers"`. Every diagnostic ran
+against it, while the summary made **invoice-wide** statements. Two probes
+showed what that produces:
+
+| Reality | What the agent said |
+|---|---|
+| A Workers AI duplicate worth $4.13, propagated through every stage | "No exact or probable duplicate usage was found", confidence high |
+| Workers AI rate tripled, invoice $22,380 | "Contract pricing did not change between the two periods", confidence high |
+
+Both are false negatives on the checks the product exists to perform, and both
+read as confident.
+
+**The rule now encoded: an assertion about the invoice must be backed by a check
+of the invoice.**
+
+- Metered services come from the decomposition, which is the only stage that
+  sees every service. Fixed-fee lines are excluded — they have no usage
+  pipeline to check.
+- `get_price_versions` and `check_duplicate_usage` run **once per metered
+  service**, as plan steps identified `tool:service`.
+- Facts accumulate rather than overwrite: `price_changed` is an OR across
+  services, duplicate counts are a SUM. Previously the last service checked
+  decided the invoice-wide answer.
+- Completion requires the per-service ids, so a service left unchecked is a
+  blocker.
+- The investigative focus for the time series and change point is the largest
+  absolute mover, derived rather than assumed. A test seeds the focus to `"R2"`
+  — a fixed-fee line with no usage — and asserts it is corrected to `"Workers"`.
+
+**Budget note.** The golden path now uses 11 of the 12 permitted tool calls. A
+third metered service would exceed the limit, and the loop would mark the
+remaining steps skipped and finish `unresolved` rather than assert something it
+had not checked. That is the correct failure direction, but the headroom is thin
+and PRD §10.6's limit would need revisiting before more services are seeded.

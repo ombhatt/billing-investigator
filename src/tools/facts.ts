@@ -94,8 +94,14 @@ export function applyToolFacts(
     }
 
     case "get_price_versions": {
+      // Checked once per metered service, so this accumulates: a price change
+      // anywhere on the invoice is a price change. Overwriting meant the last
+      // service checked decided the invoice-wide answer.
       const d = data as { priceChanged: boolean };
-      return { ...facts, price_changed: d.priceChanged };
+      return {
+        ...facts,
+        price_changed: facts.price_changed === true ? true : d.priceChanged
+      };
     }
 
     case "detect_usage_change_point": {
@@ -119,11 +125,14 @@ export function applyToolFacts(
     }
 
     case "check_duplicate_usage": {
+      // Also per service, and also summed: duplicates found on any metered
+      // service are duplicates on the invoice.
       const d = data as { exactCount: number; probableCount: number };
       return {
         ...facts,
-        exact_duplicate_count: d.exactCount,
-        probable_duplicate_count: d.probableCount
+        exact_duplicate_count: (facts.exact_duplicate_count ?? 0) + d.exactCount,
+        probable_duplicate_count:
+          (facts.probable_duplicate_count ?? 0) + d.probableCount
       };
     }
 

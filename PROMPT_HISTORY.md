@@ -559,3 +559,39 @@ fact cannot be added to one without the others noticing. Updated all three; the
 Note on severity — reported as P1, but an agent claiming an invoice is correct
 without checking duplication is closer in kind to findings 2 and 3 than the label
 suggests. Fixed at the same priority.
+
+### Review finding 5 — 2026-09-10 · Claude Code (Opus 5)
+
+**P1: Workers-only diagnostics became invoice-wide claims.** Both probes
+reproduced exactly.
+
+| Reality | Agent said |
+|---|---|
+| Workers AI duplicate worth $4.13, propagated through every stage | "No exact or probable duplicate usage was found", confidence high |
+| Workers AI rate tripled, invoice $22,380 | "Contract pricing did not change", confidence high |
+
+`FOCUS_SERVICE` was a compile-time constant. Every diagnostic ran against
+Workers while the summary spoke for the whole invoice, so a fault in any other
+service was invisible and the answer was confidently wrong about it.
+
+Fixed so the scope of the check matches the scope of the claim. Metered services
+are taken from the decomposition — the only stage that sees them all — and the
+price and duplicate checks run once per service as `tool:service` plan steps.
+Facts now accumulate instead of overwriting: `price_changed` is an OR, duplicate
+counts a SUM. Previously whichever service was checked last decided the
+invoice-wide answer. Completion requires the per-service ids.
+
+The investigative focus is now the largest absolute mover rather than a
+constant. A test seeds it to `"R2"` — a fixed-fee line with no usage at all —
+and asserts it is corrected to `"Workers"`, so the derivation is proven rather
+than coincidentally right.
+
+Worth flagging: **the golden path now uses 11 of the 12 permitted tool calls.**
+A third metered service would exceed PRD §10.6's limit; the loop would skip the
+remainder and finish `unresolved` rather than assert something unchecked, which
+is the right failure direction, but the headroom is thin and the limit would
+need revisiting before seeding more services. Documented in ARCHITECTURE §13.
+
+302 tests, up from 291. Mutation-checked: reverting to a single scope fails
+twelve, including the golden fact block — the per-service checks are now load
+bearing for the primary result, not an optional extra.

@@ -348,7 +348,9 @@ describe("bounded limits", () => {
   it("uses at most nine tool calls on the golden path", async () => {
     const model = new ScriptedModel();
     const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
-    expect(record.metrics.toolCalls).toBe(9);
+    // 11 of the 12 budget: two metered services each get a price and a
+    // duplicate check, so an invoice-wide claim is backed invoice-wide.
+    expect(record.metrics.toolCalls).toBe(11);
   });
 });
 
@@ -628,7 +630,7 @@ describe("a finished investigation cannot be resumed", () => {
       deps(new ScriptedModel())
     );
     expect(second.state).toBe("completed");
-    expect(second.plan.filter((s) => s.status === "completed")).toHaveLength(9);
+    expect(second.plan.filter((s) => s.status === "completed")).toHaveLength(11);
   });
 });
 
