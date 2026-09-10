@@ -186,6 +186,18 @@ A third, in the UI: `sendMessage` silently drops the message when the socket is
 not yet open, while the composer stayed enabled. Controls are now gated on
 `connected`.
 
+A fourth, reported against the deployed build: **Reset did not start a new
+investigation.** `clearHistory()` deletes the chat messages but does not touch
+this agent's `setState` record, so the investigation stayed `completed` and every
+later question was routed down the follow-up path — a short answer with no plan
+and no structured summary. Behind it sat a latent crash: handing a terminal
+record back to the loop would have thrown an opaque transition error, since the
+state machine has no edge out of `completed`.
+
+Fixed on both sides. The agent treats the first user message of a conversation
+as a new investigation, and `runInvestigationTurn` now rejects a terminal record
+with a message that says what to do instead. Two regression tests cover it.
+
 ### Persistence
 
 `setState` holds the investigation record — plan, step status, hypotheses,

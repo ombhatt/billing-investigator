@@ -350,3 +350,24 @@ of the *increase*; 83% is its share of August's total, and a single-period serie
 cannot yield the former. Corrected the assertion rather than the code, and logged
 the limitation instead of overclaiming.
 
+### PROMPT 5 follow-up — deployed-build defect found by the user
+
+Deployed M4 to production (migration 0002 applied remotely, 4,819 rows seeded,
+worker deployed). The user then reported that questions returned a short answer
+with no plan steps and no structured summary, and that Reset did not help.
+
+Correct report, and a real bug of mine. `clearHistory()` deletes the chat
+messages but not this agent's `setState` record, so the investigation stayed
+`completed` and every subsequent question was routed to the follow-up path —
+which by design runs no tools and returns no summary. My earlier explanation
+("hit Reset") was wrong because Reset could not clear it.
+
+Behind it was a latent crash: passing a terminal record back into
+`runInvestigationTurn` would have thrown an opaque state-machine transition
+error, masked until now by the follow-up branch.
+
+Fixed both: the first user message of a conversation always starts a new
+investigation, and the loop rejects a terminal record with a message saying what
+to do instead. Two regression tests. Redeployed and verified the exact reported
+flow — Reset, then ask — now produces nine tool steps and the full summary.
+

@@ -91,7 +91,14 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
         .join("") ?? "";
 
     const model = this.modelClient();
-    const existing = this.state.investigation;
+
+    // `clearHistory()` deletes the chat messages but not this agent's state, so
+    // a Reset would otherwise leave a completed investigation behind and every
+    // later question would be treated as a follow-up to it. The first user
+    // message of a conversation always starts a fresh investigation.
+    const isNewConversation =
+      this.messages.filter((m) => m.role === "user").length <= 1;
+    const existing = isNewConversation ? null : this.state.investigation;
 
     let text: string;
     let toolActivity: { tool: string; label: string; outcome: string | null }[] = [];

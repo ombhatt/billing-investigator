@@ -16,7 +16,7 @@ import {
   REQUIRED_PRELUDE,
   REQUIRED_RECONCILIATION
 } from "./playbooks/invoiceVariance.js";
-import { transition } from "./stateMachine.js";
+import { isTerminal, transition } from "./stateMachine.js";
 import { deterministicSummary } from "./summary.js";
 import type { InvestigationRecord, PlanStep, StepStatus } from "./types.js";
 
@@ -248,6 +248,16 @@ export async function runInvestigationTurn(
   question: string,
   deps: LoopDeps
 ): Promise<InvestigationRecord> {
+  // The state machine has no edge out of completed or unresolved, so resuming
+  // a finished investigation would fail deep in the loop with a confusing
+  // transition error. Say so plainly instead: a new question needs a new
+  // investigation, and a question about a finished one is a follow-up.
+  if (isTerminal(input.state)) {
+    throw new Error(
+      `investigation ${input.investigationId} is already ${input.state}; start a new one or ask a follow-up`
+    );
+  }
+
   let record = input;
 
   // 1. Classify, or reuse an existing classification.

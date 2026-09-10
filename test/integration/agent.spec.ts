@@ -470,6 +470,34 @@ describe("follow-up questions", () => {
   });
 });
 
+describe("a finished investigation cannot be resumed", () => {
+  it("refuses a completed record with a clear message", async () => {
+    const model = new ScriptedModel();
+    const done = await runInvestigationTurn(fresh(), QUESTION, deps(model));
+    expect(done.state).toBe("completed");
+
+    // Reproduces the deployed bug: Reset cleared the chat but left this record
+    // terminal, so the next question was routed as a follow-up. Handing the
+    // record back to the loop must fail loudly, not with a transition error.
+    await expect(
+      runInvestigationTurn(done, QUESTION, deps(new ScriptedModel()))
+    ).rejects.toThrow(/already completed; start a new one/);
+  });
+
+  it("runs a full investigation again from a fresh record", async () => {
+    const model = new ScriptedModel();
+    await runInvestigationTurn(fresh(), QUESTION, deps(model));
+
+    const second = await runInvestigationTurn(
+      fresh({ investigationId: "inv-second" }),
+      QUESTION,
+      deps(new ScriptedModel())
+    );
+    expect(second.state).toBe("completed");
+    expect(second.plan.filter((s) => s.status === "completed")).toHaveLength(9);
+  });
+});
+
 describe("deterministic model client", () => {
   it("drives the full investigation with no model at all", async () => {
     const record = await runInvestigationTurn(
