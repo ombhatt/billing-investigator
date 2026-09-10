@@ -134,6 +134,22 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
           recordIds: [`daily_usage:${serviceName}:${startDate}..${endDate}`],
           period: `${startDate} to ${endDate}`,
           status: "confirmed" as const
+        },
+        // "Which zone generated the increase?" is a required follow-up
+        // (PRD §7.4), and it is unanswerable from the total alone.
+        {
+          label: `${serviceName} usage by zone`,
+          value: [...byZone.entries()]
+            .sort((a, b) => b[1] - a[1])
+            .map(
+              ([id, quantity]) =>
+                `${id}: ${quantity.toLocaleString("en-US")} ${rows[0].unit} (${Math.round((quantity / totalQuantity) * 100)}%)`
+            )
+            .join("; "),
+          source: TOOL_NAME,
+          recordIds: [...byZone.keys()].map((id) => `zones:${id}`),
+          period: `${startDate} to ${endDate}`,
+          status: "confirmed" as const
         }
       ],
       dataLimitations:

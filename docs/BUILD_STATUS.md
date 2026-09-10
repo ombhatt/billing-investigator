@@ -4,7 +4,7 @@ Tracks execution of `docs/BUILD_PLAN.md`. Update this file as part of every mile
 change — a stale status file is a defect.
 
 **Last updated:** 2026-09-09
-**Phase:** Milestones 1-3 complete. Milestone 4 (agent) not started.
+**Phase:** Milestones 1-4 complete. Milestone 5 (UI and submission) not started.
 
 **Deployed:** https://billing-investigator.om-bhatt.workers.dev
 
@@ -19,7 +19,7 @@ change — a stale status file is a defect.
 | 1 | Walking skeleton and seeded truth | `complete` | Seeded D1 returns the golden invoice totals; skeleton deploys |
 | 2 | Deterministic domain engine | `complete` | All PRD §20.4 facts computed in pure TypeScript, no LLM |
 | 3 | Tool layer | `complete` | Golden investigation runs end to end through 9 tools, no model |
-| 4 | Agent | `pending` | Agent cannot declare correctness without reconciliation or call unknown tools |
+| 4 | Agent | `complete` | Agent cannot declare correctness without reconciliation or call unknown tools |
 | 5 | UI and submission | `pending` | Manual golden flow passes on the deployed URL and survives refresh |
 
 ---
@@ -84,13 +84,13 @@ is a build failure, not a test to update.
 | `exact_duplicate_count` | `0` | `domain` |
 | `probable_duplicate_count` | `0` | `domain` |
 | `reconciliation_status` | `passed` | `domain` |
-| `explained_percent` | `100` | `domain` + `tools` |
-| `confidence` | `high` | `domain` + `tools` |
+| `explained_percent` | `100` | `domain` + `tools` + `agent` |
+| `confidence` | `high` | `domain` + `tools` + `agent` |
 
-`domain` means proven in pure TypeScript; `tools` means re-proven by running the
-nine tools against D1. A test asserts the two paths produce identical blocks, so
-a repository that reshaped or dropped data would fail rather than pass quietly.
-M4 adds the agent path.
+`domain` is pure TypeScript; `tools` is the nine tools against D1; `agent` is the
+full bounded loop. Tests assert all three paths produce identical blocks, so a
+repository that reshaped data, or an agent that dropped a step, fails rather than
+passing quietly.
 
 ---
 
@@ -139,13 +139,78 @@ seam M4 opens; the deployed demo is unaffected.
 
 ---
 
+## Milestone 4 — bounded invoice-variance agent
+
+Complete. 231 tests across 13 files; typecheck, lint and build green. Verified
+live against Workers AI, not only under mocks.
+
+### How the split is enforced
+
+The model never calls a tool. It is reached only through `ModelClient`, which
+exposes exactly three operations — classify, plan, explain — and the server does
+everything else. That is what makes the "may / may not" list structural rather
+than a matter of prompt compliance:
+
+| Guarantee | Enforced by |
+|---|---|
+| Cannot calculate totals | Facts are folded from tool output only (`tools/facts.ts`); model prose never reaches them |
+| Cannot run SQL | It has no tool access at all; the server builds every tool input from the record |
+| Cannot skip reconciliation | `reconcile_invoice` is called outside the planning loop, and the state machine has no `investigating -> completed` edge |
+| Cannot change confidence | `evaluateConfidence` runs after the loop, from facts |
+| Cannot widen scope | Model-supplied `accountId` is ignored; periods must be ones D1 returned |
+| Cannot invent tools | Selections are filtered against the conditional allowlist |
+
+Limits are hard: 12 tool calls and 4 planning cycles per turn, one retry and
+only for a failure the tool marked retryable. The golden path uses 9 calls.
+
+Every model call has a deterministic fallback, so a failing or unavailable model
+degrades the answer's prose but never its correctness. A test drives the entire
+investigation with `DeterministicModelClient` and still produces the §20.4 block.
+
+### Two defects found by running it live
+
+Both were invisible to the mocked tests, which is the argument for running it.
+
+1. **The model wrote its own Assessment and Recommended next step**, and its
+   version ("no further investigation is required") contradicted the computed
+   recommendation sitting directly beneath it. The explain prompt now asks for
+   the finding sentence only, and `usableFinding()` discards prose that writes
+   those sections anyway.
+
+2. **Follow-ups reused the summary prompt**, so "could the usage have been
+   duplicated?" got a restatement of the variance instead of an answer.
+   `ExplainInput.mode` now separates the two, and follow-ups receive the
+   evidence cards rather than only the fact block.
+
+A third, in the UI: `sendMessage` silently drops the message when the socket is
+not yet open, while the composer stayed enabled. Controls are now gated on
+`connected`.
+
+### Persistence
+
+`setState` holds the investigation record — plan, step status, hypotheses,
+evidence, facts, summary, metrics — which is what the UI syncs and what survives
+refresh. Bulk tool-execution rows go to the Durable Object's `this.sql` as an
+audit trail. Model reasoning is persisted in neither: `PlanUpdate.reason` is
+read and dropped, and a test asserts it never appears in the serialised record.
+
+### Known limitation: zone attribution
+
+`get_usage_timeseries` reports the zone split of the period's usage (83% primary
+in August), not of the *increase* (~97%). A single-period series cannot show the
+latter. "Which zone generated the increase?" is therefore answerable only
+approximately; closing it properly needs a second series call or a per-zone
+change point.
+
+---
+
 ## Open decisions
 
 | Decision | Resolved by | Status |
 |---|---|---|
 | Subclass `AIChatAgent` vs `Agent` | S3 | `AIChatAgent` — free DO-backed message persistence |
 | Raw `env.AI.run` vs `workers-ai-provider` + `ai` SDK | S3 | `workers-ai-provider` + `ai` v6 `streamText` |
-| Investigation state in `setState()` vs `this.sql` | S4 | open — not needed until M4 |
+| Investigation state in `setState()` vs `this.sql` | S4 | `setState` for the record, `this.sql` for the tool-execution audit trail |
 | Golden E2E in Workers pool vs Node-side driver | S5 | Workers pool; D1 bindings declared in `vitest.config.ts` |
 
 ---
@@ -258,11 +323,13 @@ with integer arithmetic only, so no currency value ever passes through a float.
 
 ### Known gaps carried into later milestones
 
-- The model currently infers `abc123` from the `.describe()` example on the tool
-  schema. M4 must inject the investigation's account id explicitly instead of
-  relying on that.
-- `SESSION_NAME` in `src/app.tsx` is a fixed constant, so every visitor shares
-  one investigation. M4 replaces it with a real investigation id.
+- ~~The model infers `abc123` from a `.describe()` example.~~ Resolved in M4: the
+  server builds every tool input from the investigation record, and a
+  model-supplied account id is ignored.
+- `SESSION_NAME` in `src/app.tsx` is still a fixed constant, so every visitor to
+  the deployed URL shares one investigation. M5 should key it per investigation.
+- The UI still renders one message column. Plan, Evidence and Summary tabs
+  (PRD §8.1) are M5; the data they need is already on the synced record.
 
 ---
 
@@ -275,3 +342,4 @@ with integer arithmetic only, so no currency value ever passes through a float.
 | 2026-09-09 | `wrangler login` + workers.dev subdomain unblocked dev. Smoke test passes: one tool call, correct answer, state restored after refresh, reset works. Found and worked around a `workers-ai-provider` streaming defect (S1). |
 | 2026-09-09 | M2 complete. Full P0 schema, reproducible seed, eight domain modules, 109 tests. Every PRD §20.4 fact computed with no LLM. Change-point detection needed a documented onset rule to land on Aug 14 uniquely. |
 | 2026-09-09 | M3 complete. Five repositories, nine tools, allowlist + caching runner, 195 tests. Golden block re-proven through D1 and asserted identical to the domain path. Model tool surface left at one tool until M4's bounded loop exists. |
+| 2026-09-09 | M4 complete. Bounded agent behind a three-method ModelClient seam, state machine, server-side completion, deterministic confidence, 231 tests. Verified live; live runs exposed two defects the mocks could not (model authoring its own assessment, follow-ups reusing the summary prompt). |

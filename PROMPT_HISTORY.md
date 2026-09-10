@@ -281,3 +281,72 @@ Three decisions worth recording:
 
 No agent planning, no UI change.
 
+PROMT5 -> Claude
+
+Implement Milestone 4: bounded invoice-variance agent.
+
+Use the existing tested tools. Do not change their financial calculations unless a failing test proves a defect.
+
+Implement:
+1. invoice_variance case classification.
+2. The fixed investigation playbook from docs/PRD.md.
+3. Required first steps: compare invoices, decompose variance.
+4. Conditional usage investigation: usage time series, price versions, change point, account events, duplicate check.
+5. Mandatory reconciliation before declaring the invoice correct.
+6. A maximum of 12 tool calls and 4 planning cycles.
+7. Persistent plan, step status, tool results, evidence, and final summary.
+8. Server-side completion criteria.
+9. Deterministic confidence.
+10. Follow-up questions using existing evidence.
+11. Mocked-model integration tests.
+
+The LLM may: classify the question, select conditional tools, update hypotheses, explain evidence.
+The LLM may not: calculate financial totals, execute arbitrary SQL, skip reconciliation,
+change confidence, invent records, claim deployment causation.
+
+Do not expose chain-of-thought.
+Run all tests and update documentation.
+
+### PROMPT 5 — 2026-09-09 · Claude Code (Opus 5)
+
+Milestone 4 complete. 231 tests across 13 files; typecheck, lint and build green.
+Verified live against Workers AI as well as under mocks.
+
+Added `src/agent/`: types, state machine, the fixed playbook, a three-method
+`ModelClient` seam, server-side completion criteria, deterministic summary,
+follow-up handling, the bounded loop, and the Workers AI implementation. Wired
+into the Durable Object with `setState` for the record and `this.sql` for the
+tool-execution audit trail.
+
+**The central design choice: the model never touches a tool.** It is reached only
+through `ModelClient` (classify / plan / explain); the server builds every tool
+input from the investigation record. That turns the "may not" list into
+structure rather than prompt compliance — reconciliation runs outside the
+planning loop, the state machine has no `investigating -> completed` edge,
+confidence is computed after the loop, and a model-supplied account id is
+discarded. It also makes the whole loop testable with a scripted client.
+
+**Two defects only the live run could find.** Both passed every mocked test:
+
+1. The model wrote its own Assessment and Recommended next step, and its
+   version ("no further investigation is required") *contradicted* the computed
+   recommendation directly beneath it. Fixed by asking for the finding sentence
+   only, plus a `usableFinding()` guard that discards prose writing those
+   sections. Two regression tests added.
+
+2. Follow-ups reused the summary prompt, so "could the usage have been
+   duplicated?" returned a restatement of the variance. Added
+   `ExplainInput.mode`, and follow-ups now get the evidence cards rather than
+   only the fact block. After the fix: "No... 0 exact and 0 probable duplicates
+   across 1,488 events", with no new tool calls.
+
+A third defect in the UI: `sendMessage` silently drops a message when the socket
+is not yet open while the composer stayed enabled — the cause of repeated lost
+first clicks. Controls are now gated on `connected`.
+
+One test of mine was wrong and worth recording: I asserted the zone evidence
+showed ~97% on the primary zone. It shows 83%. 97% is the primary zone's share
+of the *increase*; 83% is its share of August's total, and a single-period series
+cannot yield the former. Corrected the assertion rather than the code, and logged
+the limitation instead of overclaiming.
+

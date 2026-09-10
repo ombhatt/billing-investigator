@@ -87,6 +87,14 @@ describe("golden investigation through the tool layer", () => {
     expect(labels).toContain("Duplicate usage check");
     expect(labels).toContain("Invoice reconciliation");
 
+    // Zone attribution, so "which zone?" is answerable from evidence at all.
+    // Note this is the split of the period's total usage, not of the increase:
+    // the primary zone holds 83% of August volume while carrying ~97% of the
+    // growth, and only the former is derivable from a single-period series.
+    const byZone = evidence.find((e) => e.label === "Workers usage by zone")!;
+    expect(byZone.value).toMatch(/zone-api-acme: [\d,]+ requests \(83%\)/);
+    expect(byZone.value).toContain("zone-web-acme");
+
     // Every card names its tool and carries a status from the fixed vocabulary.
     for (const card of evidence) {
       expect(card.source).toBeTruthy();

@@ -11,7 +11,9 @@ import type { BillingInvestigatorAgent } from "./server.js";
  */
 const SESSION_NAME = "demo-abc123";
 
-const SUGGESTED_PROMPT = "What account am I investigating?";
+/** PRD §7.1. */
+const SUGGESTED_PROMPT =
+  "Why is account abc123's August invoice higher than July, and is the bill correct?";
 
 function messageText(message: UIMessage): string {
   return message.parts
@@ -54,14 +56,18 @@ export default function App() {
     if (!isBusy) inputRef.current?.focus();
   }, [isBusy]);
 
+  // Sending before the socket is open drops the message silently, so the
+  // composer stays disabled until the agent connection is actually up.
+  const canSend = connected && !isBusy;
+
   const submit = useCallback(
     (text: string) => {
       const trimmed = text.trim();
-      if (!trimmed || isBusy) return;
+      if (!trimmed || !canSend) return;
       sendMessage({ role: "user", parts: [{ type: "text", text: trimmed }] });
       setInput("");
     },
-    [isBusy, sendMessage]
+    [canSend, sendMessage]
   );
 
   return (
@@ -85,12 +91,12 @@ export default function App() {
       <section className="messages" aria-live="polite" aria-label="Conversation">
         {messages.length === 0 && (
           <div className="empty">
-            <p>Milestone 1 smoke test. Ask:</p>
+            <p>Start an investigation:</p>
             <button
               type="button"
               className="suggestion"
               onClick={() => submit(SUGGESTED_PROMPT)}
-              disabled={isBusy}
+              disabled={!canSend}
             >
               {SUGGESTED_PROMPT}
             </button>
@@ -140,16 +146,16 @@ export default function App() {
           onChange={(event) => setInput(event.target.value)}
           placeholder="Ask a billing question…"
           autoComplete="off"
-          disabled={isBusy}
+          disabled={!canSend}
         />
-        <button type="submit" disabled={isBusy || !input.trim()}>
+        <button type="submit" disabled={!canSend || !input.trim()}>
           Send
         </button>
         <button
           type="button"
           className="secondary"
           onClick={() => clearHistory()}
-          disabled={isBusy}
+          disabled={!canSend}
         >
           Reset
         </button>

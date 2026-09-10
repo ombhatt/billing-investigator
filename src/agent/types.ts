@@ -1,0 +1,80 @@
+import type { EvidenceCard } from "../types/tools.js";
+import type { InvestigationFacts } from "../tools/facts.js";
+
+/** PRD §10.3. */
+export type InvestigationState =
+  | "created"
+  | "clarification_required"
+  | "planning"
+  | "investigating"
+  | "reconciling"
+  | "completed"
+  | "unresolved"
+  | "failed";
+
+export type StepStatus = "pending" | "running" | "completed" | "failed" | "skipped";
+
+export interface PlanStep {
+  id: string;
+  tool: string;
+  /** User-facing action, never the model's reasoning. PRD §7.2. */
+  label: string;
+  required: boolean;
+  status: StepStatus;
+  outcome: string | null;
+}
+
+/** PRD §10.4. */
+export type HypothesisId = "H1" | "H2" | "H3" | "H4" | "H5" | "H6";
+export type HypothesisStatus = "untested" | "supported" | "rejected" | "unresolved";
+
+export interface Hypothesis {
+  id: HypothesisId;
+  label: string;
+  status: HypothesisStatus;
+}
+
+export interface RecordedExecution {
+  tool: string;
+  input: unknown;
+  executedAt: string;
+  ok: boolean;
+  errorCode: string | null;
+  cached: boolean;
+  durationMs: number;
+}
+
+export interface FinalSummary {
+  finding: string;
+  evidence: string[];
+  assessment: string;
+  recommendedNextStep: string;
+  /** True only when every server-side completion criterion passed. */
+  invoiceAppearsCorrect: boolean;
+  generatedBy: "model" | "deterministic_fallback";
+}
+
+export interface InvestigationRecord {
+  investigationId: string;
+  accountId: string;
+  caseType: "invoice_variance" | null;
+  currentPeriod: string | null;
+  comparisonPeriod: string | null;
+  focusService: string;
+  state: InvestigationState;
+  clarificationQuestion: string | null;
+  plan: PlanStep[];
+  hypotheses: Hypothesis[];
+  evidence: EvidenceCard[];
+  facts: InvestigationFacts;
+  summary: FinalSummary | null;
+  metrics: {
+    toolCalls: number;
+    cachedToolCalls: number;
+    planningCycles: number;
+    startedAt: string;
+    completedAt: string | null;
+  };
+  /** Machine-readable reasons the investigation could not complete. */
+  blockers: string[];
+}
