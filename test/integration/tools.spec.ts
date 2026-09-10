@@ -5,6 +5,7 @@ import { seedDataset } from "./seedD1.js";
 import {
   ALLOWED_TOOLS,
   isAllowedTool,
+  erasedHandler,
   TOOL_HANDLERS,
   ToolRunner
 } from "../../src/tools/registry.js";
@@ -102,7 +103,7 @@ describe("allowlist", () => {
 });
 
 describe.each(ALLOWED_TOOLS)("%s — contract", (toolName) => {
-  const handler = TOOL_HANDLERS[toolName];
+  const handler = erasedHandler(toolName);
   const input = VALID_INPUT[toolName];
 
   it("returns every required envelope field", async () => {

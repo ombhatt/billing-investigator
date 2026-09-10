@@ -1,4 +1,5 @@
 import type { Confidence } from "../domain/confidence.js";
+import type { ToolName, ToolOutput } from "./catalog.js";
 
 /**
  * The structured block every path must agree on: pure domain, the M3 runner,
@@ -50,117 +51,115 @@ export function emptyFacts(): InvestigationFacts {
   };
 }
 
-interface CompareData {
-  currentTotalCents: number;
-  comparisonTotalCents: number;
-  varianceCents: number;
-  percentageVarianceDisplay: number | null;
-  services: { serviceName: string; varianceCents: number }[];
+
+/** Extra context a reducer may need that is not in the tool's own output. */
+export interface FactContext {
+  changeDate?: string | null;
 }
+
+/**
+ * One reducer per tool, each typed to that tool's actual output.
+ *
+ * These were a `switch` over `string` with a hand-written `as` cast in every
+ * branch — nine assertions about shapes the compiler was not checking. A tool
+ * could rename a field and every consumer would keep compiling and silently
+ * read `undefined`. Here `data` is `ToolOutput<N>`, so a renamed or removed
+ * field fails the build at the reducer that depends on it.
+ *
+ * Tools absent from this map contribute no facts, which is a statement rather
+ * than an omission: `get_account_context` and `get_usage_timeseries` produce
+ * evidence for the reader, not values the verdict is computed from.
+ */
+type FactReducer<N extends ToolName> = (
+  facts: InvestigationFacts,
+  data: ToolOutput<N>,
+  context: FactContext
+) => InvestigationFacts;
+
+type FactReducers = { [N in ToolName]?: FactReducer<N> };
+
+const REDUCERS: FactReducers = {
+  compare_invoices: (facts, d) => {
+    const variance = (name: string) =>
+      d.services.find((s) => s.serviceName === name)?.varianceCents ?? 0;
+    return {
+      ...facts,
+      current_total_cents: d.currentTotalCents,
+      comparison_total_cents: d.comparisonTotalCents,
+      variance_cents: d.varianceCents,
+      percentage_variance_display: d.percentageVarianceDisplay,
+      workers_variance_cents: variance("Workers"),
+      workers_ai_variance_cents: variance("Workers AI")
+    };
+  },
+
+  decompose_variance: (facts, d) => ({
+    ...facts,
+    explained_percent: d.explainedPercent,
+    volume_effect_cents: d.volumeEffectCents,
+    price_effect_cents: d.priceEffectCents
+  }),
+
+  // Checked once per metered service, so this accumulates: a price change
+  // anywhere on the invoice is a price change. Overwriting meant the last
+  // service checked decided the invoice-wide answer.
+  get_price_versions: (facts, d) => ({
+    ...facts,
+    price_changed: facts.price_changed === true ? true : d.priceChanged
+  }),
+
+  // Only an accepted change point becomes a fact. Keeping the date alone
+  // discarded the very qualifiers that said whether to believe it, so a
+  // rejected candidate read downstream exactly like a confirmed shift.
+  detect_usage_change_point: (facts, d) =>
+    d.detected
+      ? {
+          ...facts,
+          change_date: d.changeDate,
+          change_point_material: d.material,
+          change_point_confidence: d.confidence
+        }
+      : facts,
+
+  get_account_events: (facts, d, context) => {
+    const anchor = context.changeDate
+      ? Date.parse(`${context.changeDate}T00:00:00Z`)
+      : null;
+    if (anchor === null || d.events.length === 0) return facts;
+    // Nearest in time wins. Proximity only — never a causal claim. PRD §12.8.
+    const nearest = [...d.events].sort(
+      (a, b) =>
+        Math.abs(Date.parse(a.occurredAt) - anchor) -
+        Math.abs(Date.parse(b.occurredAt) - anchor)
+    )[0];
+    return { ...facts, correlated_event_id: nearest.eventId };
+  },
+
+  // Also per service, and also summed: duplicates found on any metered service
+  // are duplicates on the invoice.
+  check_duplicate_usage: (facts, d) => ({
+    ...facts,
+    exact_duplicate_count: (facts.exact_duplicate_count ?? 0) + d.exactCount,
+    probable_duplicate_count:
+      (facts.probable_duplicate_count ?? 0) + d.probableCount
+  }),
+
+  reconcile_invoice: (facts, d) => ({
+    ...facts,
+    reconciliation_status: d.status
+  })
+};
 
 /**
  * Folds one tool result into the fact block. Facts only ever come from tool
  * output, never from anything the model said. PRD §10.5 rule 9.
  */
-export function applyToolFacts(
+export function applyToolFacts<N extends ToolName>(
   facts: InvestigationFacts,
-  tool: string,
-  data: unknown,
-  options: { changeDate?: string | null } = {}
+  tool: N,
+  data: ToolOutput<N>,
+  context: FactContext = {}
 ): InvestigationFacts {
-  switch (tool) {
-    case "compare_invoices": {
-      const d = data as CompareData;
-      const variance = (name: string) =>
-        d.services.find((s) => s.serviceName === name)?.varianceCents ?? 0;
-      return {
-        ...facts,
-        current_total_cents: d.currentTotalCents,
-        comparison_total_cents: d.comparisonTotalCents,
-        variance_cents: d.varianceCents,
-        percentage_variance_display: d.percentageVarianceDisplay,
-        workers_variance_cents: variance("Workers"),
-        workers_ai_variance_cents: variance("Workers AI")
-      };
-    }
-
-    case "decompose_variance": {
-      const d = data as {
-        explainedPercent: number;
-        volumeEffectCents: number;
-        priceEffectCents: number;
-      };
-      return {
-        ...facts,
-        explained_percent: d.explainedPercent,
-        volume_effect_cents: d.volumeEffectCents,
-        price_effect_cents: d.priceEffectCents
-      };
-    }
-
-    case "get_price_versions": {
-      // Checked once per metered service, so this accumulates: a price change
-      // anywhere on the invoice is a price change. Overwriting meant the last
-      // service checked decided the invoice-wide answer.
-      const d = data as { priceChanged: boolean };
-      return {
-        ...facts,
-        price_changed: facts.price_changed === true ? true : d.priceChanged
-      };
-    }
-
-    case "detect_usage_change_point": {
-      const d = data as {
-        detected: boolean;
-        changeDate: string | null;
-        material: boolean;
-        confidence: "high" | "medium" | "low";
-      };
-      // Only an accepted change point becomes a fact. Keeping the date alone
-      // discarded the very qualifiers that said whether to believe it, so a
-      // rejected candidate read downstream exactly like a confirmed shift.
-      if (!d.detected) return facts;
-      return {
-        ...facts,
-        change_date: d.changeDate,
-        change_point_material: d.material,
-        change_point_confidence: d.confidence
-      };
-    }
-
-    case "get_account_events": {
-      const d = data as { events: { eventId: string; occurredAt: string }[] };
-      const anchor = options.changeDate
-        ? Date.parse(`${options.changeDate}T00:00:00Z`)
-        : null;
-      if (anchor === null || d.events.length === 0) return facts;
-      // Nearest in time wins. Proximity only — never a causal claim. PRD §12.8.
-      const nearest = [...d.events].sort(
-        (a, b) =>
-          Math.abs(Date.parse(a.occurredAt) - anchor) -
-          Math.abs(Date.parse(b.occurredAt) - anchor)
-      )[0];
-      return { ...facts, correlated_event_id: nearest.eventId };
-    }
-
-    case "check_duplicate_usage": {
-      // Also per service, and also summed: duplicates found on any metered
-      // service are duplicates on the invoice.
-      const d = data as { exactCount: number; probableCount: number };
-      return {
-        ...facts,
-        exact_duplicate_count: (facts.exact_duplicate_count ?? 0) + d.exactCount,
-        probable_duplicate_count:
-          (facts.probable_duplicate_count ?? 0) + d.probableCount
-      };
-    }
-
-    case "reconcile_invoice": {
-      const d = data as { status: "passed" | "failed" };
-      return { ...facts, reconciliation_status: d.status };
-    }
-
-    default:
-      return facts;
-  }
+  const reduce = REDUCERS[tool] as FactReducer<N> | undefined;
+  return reduce ? reduce(facts, data, context) : facts;
 }

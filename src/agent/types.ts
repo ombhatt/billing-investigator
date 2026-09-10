@@ -1,4 +1,5 @@
 import type { EvidenceCard } from "../types/tools.js";
+import type { ToolName } from "../tools/catalog.js";
 import type { InvestigationFacts } from "../tools/facts.js";
 
 /** PRD §10.3. */
@@ -18,7 +19,8 @@ export interface PlanStep {
   /** Set on steps that run once per metered service. */
   service?: string;
   id: string;
-  tool: string;
+  /** Only a tool that exists can be planned. Narrowed from the allowlist. */
+  tool: ToolName;
   /** User-facing action, never the model's reasoning. PRD §7.2. */
   label: string;
   required: boolean;

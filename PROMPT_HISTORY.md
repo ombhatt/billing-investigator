@@ -957,3 +957,43 @@ One thing I got wrong on the way: I wrote the duplicate scenario as an *exact*
 duplicate. Exact means a repeated `event_id`, which a primary key makes
 unstorable — a copied event with a new id and an identical fingerprint is a
 *probable* duplicate. The test caught it.
+
+---
+
+### Review recommendation — preserve tool types through the execution path
+
+> A tool's output can change without the compiler identifying every affected
+> consumer.
+
+Correct, and the fix was cheaper than expected because `createTool` was already
+generic over its output — the registry was throwing that away with nine
+`as ToolHandler<unknown>` casts. `src/tools/catalog.ts` keeps them, and
+`ToolName`, `ToolInput<N>` and `ToolOutput<N>` derive from it.
+
+The detail that matters: the catalog is declared with **no type annotation**.
+Annotating it would widen every entry straight back to the erased form. A bare
+`satisfies` clause checks the shape without collapsing the inference.
+
+The three switches over tool names became mapped types — fact reducers, input
+builders, step summarisers — so adding a tool makes the compiler ask for its
+pieces rather than letting a `default:` branch absorb the omission.
+
+The dynamic boundary stays where it belongs: `isAllowedTool` and
+`isConditionalTool` are now type predicates, and they are the only places a
+model-supplied string becomes a `ToolName`. Schemas still validate at execution,
+because the compiler protects our call sites and Zod protects against the model.
+
+Two casts survive, both inside a runtime `if (tool !== "x") return` guard where
+comparing `tool` cannot narrow `N`. Both are commented as such rather than left
+looking like the ones I removed.
+
+437 tests, up from 430. Mutation-checked twice: annotating the catalog back to
+the erased form gives 47 type errors, and renaming `varianceCents` in the compare
+tool now flags `facts.ts` and `loop.ts` — which is precisely the failure the
+recommendation described, and precisely what those two files would have missed
+before.
+
+The compile-time guarantee is asserted in `test/types/toolContract.ts` rather
+than a spec file. My first attempt spawned `tsc` per test — seven seconds each,
+and wrong. `@ts-expect-error` directives checked by the existing typecheck gate
+cost nothing and fail loudly when a mistake becomes legal.

@@ -892,3 +892,58 @@ datasets — the golden case, a Workers AI reprice, and a Workers AI double-inge
 — and asserts they agree fact for fact. Each scenario puts the interesting event
 on the service that is never the driver, which is precisely where the old
 divergence lived.
+
+## 22. Addendum: the tool catalog
+
+Review found the tool types being erased at the registry and reconstructed by
+hand at every consumer.
+
+`TOOL_HANDLERS` was `Record<string, ToolHandler<unknown>>`, built with nine
+`as ToolHandler<unknown>` casts. Downstream, `applyToolFacts` was a `switch`
+over `string` with a hand-written cast in each branch, and the loop did the same
+in `inputFor`, `summarise` and two capture helpers. A tool could rename a field
+and every consumer would keep compiling and read `undefined`.
+
+`src/tools/catalog.ts` now holds each tool's name, schema and handler in one
+object, declared **without a type annotation** — an annotation would widen the
+entries back to the erased form, which is the bug. `satisfies` checks the shape
+while leaving each entry's exact types inferred, and `ToolName`, `ToolInput<N>`
+and `ToolOutput<N>` are derived from it.
+
+Consumers follow the same pattern rather than switching on a string:
+
+| Was | Is |
+|---|---|
+| `switch (tool)` + cast per branch | `REDUCERS: { [N in ToolName]?: FactReducer<N> }` |
+| `inputFor` switch returning `Record<string, unknown>` | `INPUT_BUILDERS: { [N in ToolName]: InputBuilder<N> }` |
+| `summarise` switch over `Record<string, unknown>` | `SUMMARISERS: { [N in ToolName]: Summariser<N> }` |
+
+Adding a tool now means adding a catalog entry; the mapped types make the
+compiler ask for the builder and the summariser, rather than a `default:` branch
+silently absorbing the omission.
+
+### The boundary that stays dynamic
+
+The model chooses tool names at runtime, so somewhere a string has to become a
+`ToolName`. That happens in exactly two guards — `isAllowedTool` and
+`isConditionalTool`, both now type predicates — and an unknown name still fails
+with `UNKNOWN_TOOL` at runtime. Schemas still validate arguments at execution:
+the compiler protects the server's own call sites, and Zod protects against
+anything the model supplies.
+
+`erasedHandler` is the one sanctioned place the types are dropped, for the
+cross-cutting contract tests that iterate all nine tools and cannot know which
+one they hold.
+
+### Validation
+
+`test/types/toolContract.ts` asserts the compile-time half, since a runtime test
+cannot: each `@ts-expect-error` claims a particular mistake *cannot compile*, and
+if a change ever makes one legal, TypeScript reports the unused directive and
+`npm run typecheck` fails.
+
+Mutation-checked two ways. Annotating the catalog back to
+`Record<string, ToolHandler<unknown>>` produces **47 type errors**. Renaming
+`varianceCents` in the compare tool's output now flags `src/tools/facts.ts` and
+`src/agent/loop.ts` — the two consumers that previously held casts and would have
+gone on reading `undefined`.

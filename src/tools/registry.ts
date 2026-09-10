@@ -1,41 +1,36 @@
 import type { ToolDeps, ToolHandler } from "./createTool.js";
 import type { ToolResult } from "../types/tools.js";
-import { getAccountContext, TOOL_NAME as GET_ACCOUNT_CONTEXT } from "./getAccountContext.js";
-import { compareInvoices, TOOL_NAME as COMPARE_INVOICES } from "./compareInvoices.js";
-import { decomposeVariance, TOOL_NAME as DECOMPOSE_VARIANCE } from "./decomposeVariance.js";
-import { getUsageTimeseries, TOOL_NAME as GET_USAGE_TIMESERIES } from "./getUsageTimeseries.js";
-import { getPriceVersions, TOOL_NAME as GET_PRICE_VERSIONS } from "./getPriceVersions.js";
 import {
-  detectUsageChangePoint,
-  TOOL_NAME as DETECT_USAGE_CHANGE_POINT
-} from "./detectUsageChangePoint.js";
-import { getAccountEvents, TOOL_NAME as GET_ACCOUNT_EVENTS } from "./getAccountEvents.js";
-import {
-  checkDuplicateUsage,
-  TOOL_NAME as CHECK_DUPLICATE_USAGE
-} from "./checkDuplicateUsage.js";
-import { reconcileInvoice, TOOL_NAME as RECONCILE_INVOICE } from "./reconcileInvoice.js";
+  ALLOWED_TOOLS,
+  isAllowedTool,
+  TOOL_CATALOG,
+  type ToolInput,
+  type ToolName,
+  type ToolOutput
+} from "./catalog.js";
+
+export { ALLOWED_TOOLS, isAllowedTool, TOOL_CATALOG };
+export type { ToolInput, ToolName, ToolOutput };
 
 /**
- * The allowlist. Single source of truth for what may execute. A name absent
- * from this map cannot be called, whatever asks for it. PRD §10.2, §17.
+ * The nine handlers, keyed by name. Kept as a derived view of the catalog so
+ * there is still one allowlist, not two. PRD §10.2, §17.
  */
-export const TOOL_HANDLERS: Record<string, ToolHandler<unknown>> = {
-  [GET_ACCOUNT_CONTEXT]: getAccountContext as ToolHandler<unknown>,
-  [COMPARE_INVOICES]: compareInvoices as ToolHandler<unknown>,
-  [DECOMPOSE_VARIANCE]: decomposeVariance as ToolHandler<unknown>,
-  [GET_USAGE_TIMESERIES]: getUsageTimeseries as ToolHandler<unknown>,
-  [GET_PRICE_VERSIONS]: getPriceVersions as ToolHandler<unknown>,
-  [DETECT_USAGE_CHANGE_POINT]: detectUsageChangePoint as ToolHandler<unknown>,
-  [GET_ACCOUNT_EVENTS]: getAccountEvents as ToolHandler<unknown>,
-  [CHECK_DUPLICATE_USAGE]: checkDuplicateUsage as ToolHandler<unknown>,
-  [RECONCILE_INVOICE]: reconcileInvoice as ToolHandler<unknown>
-};
+export const TOOL_HANDLERS = Object.fromEntries(
+  Object.entries(TOOL_CATALOG).map(([name, entry]) => [name, entry.handler])
+) as { [N in ToolName]: (typeof TOOL_CATALOG)[N]["handler"] };
 
-export const ALLOWED_TOOLS = Object.keys(TOOL_HANDLERS).sort();
-
-export function isAllowedTool(name: string): boolean {
-  return Object.hasOwn(TOOL_HANDLERS, name);
+/**
+ * The erased view, for code that must treat all nine tools identically — the
+ * cross-cutting contract tests that assert every tool validates its input,
+ * scopes its account and shapes its envelope the same way.
+ *
+ * This is the one sanctioned place the types are dropped, and it is deliberate:
+ * a test that iterates the allowlist cannot know which tool it is holding. Any
+ * consumer that *does* know should use `run`, where the compiler can help.
+ */
+export function erasedHandler(name: ToolName): ToolHandler<unknown> {
+  return TOOL_CATALOG[name].handler as ToolHandler<unknown>;
 }
 
 /** Key-sorted so argument order cannot produce two keys for one call. */
@@ -66,8 +61,11 @@ export interface ToolExecution {
  * Executes allowlisted tools and remembers results within one investigation,
  * so an identical repeat call does not hit D1 again. PRD §5 (FR-5), §19.
  *
- * The cache lives in memory for the life of the runner. M4 persists it in the
- * agent's Durable Object so it survives across turns.
+ * `run` is typed per tool: calling it with a known name checks the arguments
+ * and types the result, so a tool that changes its shape breaks its consumers
+ * at compile time rather than at a cast. The `string` overload remains for the
+ * one case that genuinely has an unknown name — a tool the model asked for —
+ * and that path still fails safely at runtime with `UNKNOWN_TOOL`.
  */
 export class ToolRunner {
   private readonly cache = new Map<string, ToolResult<unknown>>();
@@ -75,6 +73,11 @@ export class ToolRunner {
 
   constructor(private readonly deps: ToolDeps) {}
 
+  async run<N extends ToolName>(
+    name: N,
+    input: ToolInput<N>
+  ): Promise<ToolResult<ToolOutput<N>>>;
+  async run(name: string, input: unknown): Promise<ToolResult<unknown>>;
   async run(name: string, input: unknown): Promise<ToolResult<unknown>> {
     const started = Date.now();
 
@@ -111,7 +114,7 @@ export class ToolRunner {
       return hit;
     }
 
-    const result = await TOOL_HANDLERS[name](input, this.deps);
+    const result = await TOOL_CATALOG[name].handler(input, this.deps);
     // Only successful results are reused; a transient failure should be
     // retryable rather than sticky.
     if (!("error" in result)) this.cache.set(key, result);

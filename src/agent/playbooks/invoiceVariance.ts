@@ -1,3 +1,4 @@
+import type { ToolName } from "../../tools/catalog.js";
 import type { Hypothesis, PlanStep } from "../types.js";
 
 /**
@@ -54,13 +55,18 @@ export const CONDITIONAL_TOOLS: readonly string[] = CONDITIONAL_STEPS.map(
   (s) => s.tool
 );
 
-export const REQUIRED_TOOLS: readonly string[] = [
+export const REQUIRED_TOOLS: readonly ToolName[] = [
   ...REQUIRED_PRELUDE.map((s) => s.tool),
   REQUIRED_RECONCILIATION.tool
 ];
 
-export function isConditionalTool(tool: string): boolean {
-  return CONDITIONAL_TOOLS.includes(tool);
+/**
+ * Narrows a model-supplied name to one the playbook permits. This is where a
+ * string the model chose becomes a checked `ToolName`; anything else is
+ * rejected before it can reach the runner.
+ */
+export function isConditionalTool(tool: string): tool is ToolName {
+  return (CONDITIONAL_TOOLS as readonly string[]).includes(tool);
 }
 
 /** PRD §10.6 limits, enforced server-side. */
@@ -70,7 +76,7 @@ export const MAX_TOOL_RETRIES = 1;
 
 export function initialPlan(): PlanStep[] {
   const step = (
-    tool: string,
+    tool: ToolName,
     label: string,
     required: boolean
   ): PlanStep => ({

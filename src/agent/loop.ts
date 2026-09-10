@@ -5,7 +5,13 @@ import {
   type ServiceCandidate
 } from "../domain/servicePolicy.js";
 import { applyToolFacts, emptyFacts } from "../tools/facts.js";
-import type { ToolRunner } from "../tools/registry.js";
+import { isAllowedTool } from "../tools/registry.js";
+import type {
+  ToolInput,
+  ToolName,
+  ToolOutput,
+  ToolRunner
+} from "../tools/registry.js";
 import { isFailure, type ToolResult } from "../types/tools.js";
 import { applicableDiagnostics, assessCompletion } from "./completion.js";
 import type {
@@ -75,7 +81,7 @@ export function newInvestigation(
 }
 
 /** Steps are addressed by id, which for per-service steps includes the service. */
-export function stepId(tool: string, service?: string): string {
+export function stepId(tool: ToolName, service?: string): string {
   return service === undefined ? tool : `${tool}:${service}`;
 }
 
@@ -153,110 +159,165 @@ export function pickFocusService(
   return driverService(asCandidates(record), metered[0] ?? record.focusService);
 }
 
-/** Tool arguments are built by the server from the investigation record. */
-function inputFor(
-  tool: string,
+/**
+ * Tool arguments, built by the server from the investigation record.
+ *
+ * One builder per tool, each returning that tool exact input type, so a
+ * misspelled or mistyped argument fails the build rather than the request. A
+ * builder returns null when the record cannot supply the arguments yet.
+ */
+type InputBuilder<N extends ToolName> = (
   record: InvestigationRecord,
-  service?: string
-): Record<string, unknown> | null {
-  const {
-    accountId,
-    currentPeriod,
-    comparisonPeriod,
-    focusService,
-    facts
-  } = record;
-  if (!currentPeriod || !comparisonPeriod) return null;
+  service: string | undefined
+) => ToolInput<N> | null;
 
-  const from = periodStart(currentPeriod);
-  const to = periodEnd(currentPeriod);
+const INPUT_BUILDERS: { [N in ToolName]: InputBuilder<N> } = {
+  get_account_context: (record) => ({ accountId: record.accountId }),
 
-  switch (tool) {
-    case "get_account_context":
-      return { accountId };
-    case "compare_invoices":
-    case "decompose_variance":
-      return { accountId, currentPeriod, comparisonPeriod };
-    // Scoped to the driver: these locate when and where consumption moved.
-    // The timeseries also carries the comparison window, because "which zone
-    // generated the increase?" is a required follow-up and follow-ups answer
-    // from persisted evidence — the comparison has to be on record by then.
-    case "get_usage_timeseries":
-      return {
-        accountId,
-        serviceName: focusService,
-        startDate: from,
-        endDate: to,
-        comparisonStartDate: periodStart(comparisonPeriod),
-        comparisonEndDate: periodEnd(comparisonPeriod)
-      };
-    case "detect_usage_change_point":
-      return { accountId, serviceName: focusService, startDate: from, endDate: to };
-    // Run per metered service, since the conclusion is invoice-wide.
-    case "check_duplicate_usage":
-      return {
-        accountId,
-        serviceName: service ?? focusService,
-        startDate: from,
-        endDate: to
-      };
-    case "get_price_versions":
-      return {
-        accountId,
-        serviceName: service ?? focusService,
-        startDate: periodStart(comparisonPeriod),
-        endDate: to
-      };
-    case "get_account_events": {
-      // Only meaningful once a change point exists to anchor the window.
-      if (!facts.change_date) return null;
-      const anchor = Date.parse(`${facts.change_date}T00:00:00Z`);
-      return {
-        accountId,
-        startTimestamp: new Date(anchor - 86_400_000).toISOString(),
-        endTimestamp: new Date(anchor + 86_400_000).toISOString()
-      };
-    }
-    case "reconcile_invoice":
-      return { accountId, period: currentPeriod };
-    default:
-      return null;
+  compare_invoices: (record) => {
+    const p = periods(record);
+    return (
+      p && {
+        accountId: record.accountId,
+        currentPeriod: p.current,
+        comparisonPeriod: p.comparison
+      }
+    );
+  },
+
+  decompose_variance: (record) => {
+    const p = periods(record);
+    return (
+      p && {
+        accountId: record.accountId,
+        currentPeriod: p.current,
+        comparisonPeriod: p.comparison
+      }
+    );
+  },
+
+  // Scoped to the driver: this locates when and where consumption moved. It
+  // also carries the comparison window, because "which zone generated the
+  // increase?" is a required follow-up and follow-ups answer from persisted
+  // evidence — the comparison has to be on record by then.
+  get_usage_timeseries: (record) => {
+    const p = periods(record);
+    return (
+      p && {
+        accountId: record.accountId,
+        serviceName: record.focusService,
+        startDate: periodStart(p.current),
+        endDate: periodEnd(p.current),
+        comparisonStartDate: periodStart(p.comparison),
+        comparisonEndDate: periodEnd(p.comparison)
+      }
+    );
+  },
+
+  detect_usage_change_point: (record) => {
+    const p = periods(record);
+    return (
+      p && {
+        accountId: record.accountId,
+        serviceName: record.focusService,
+        startDate: periodStart(p.current),
+        endDate: periodEnd(p.current)
+      }
+    );
+  },
+
+  // Run per metered service, since the conclusion is invoice-wide.
+  check_duplicate_usage: (record, service) => {
+    const p = periods(record);
+    return (
+      p && {
+        accountId: record.accountId,
+        serviceName: service ?? record.focusService,
+        startDate: periodStart(p.current),
+        endDate: periodEnd(p.current)
+      }
+    );
+  },
+
+  get_price_versions: (record, service) => {
+    const p = periods(record);
+    return (
+      p && {
+        accountId: record.accountId,
+        serviceName: service ?? record.focusService,
+        startDate: periodStart(p.comparison),
+        endDate: periodEnd(p.current)
+      }
+    );
+  },
+
+  get_account_events: (record) => {
+    // Only meaningful once a change point exists to anchor the window.
+    if (!periods(record) || !record.facts.change_date) return null;
+    const anchor = Date.parse(`${record.facts.change_date}T00:00:00Z`);
+    return {
+      accountId: record.accountId,
+      startTimestamp: new Date(anchor - 86_400_000).toISOString(),
+      endTimestamp: new Date(anchor + 86_400_000).toISOString()
+    };
+  },
+
+  reconcile_invoice: (record) => {
+    const p = periods(record);
+    return p && { accountId: record.accountId, period: p.current };
   }
+};
+
+/**
+ * Both periods, or null. Returning them rather than a boolean is what lets the
+ * builders below drop their non-null assertions.
+ */
+function periods(
+  record: InvestigationRecord
+): { current: string; comparison: string } | null {
+  return record.currentPeriod && record.comparisonPeriod
+    ? { current: record.currentPeriod, comparison: record.comparisonPeriod }
+    : null;
 }
 
-function summarise(tool: string, data: unknown): string {
-  const d = data as Record<string, unknown>;
-  switch (tool) {
-    case "get_account_context":
-      return `${d.displayName}`;
-    case "compare_invoices":
-      return `variance ${d.varianceCents} cents`;
-    case "decompose_variance":
-      return `${Number(d.explainedPercent).toFixed(2)}% explained`;
-    case "get_usage_timeseries":
-      return `${d.totalQuantity} units`;
-    case "get_price_versions":
-      return d.priceChanged ? "price changed" : "no price change";
-    case "detect_usage_change_point":
-      return d.changeDate ? `change on ${d.changeDate}` : "no change point";
-    case "get_account_events":
-      return `${(d.events as unknown[]).length} events in window`;
-    case "check_duplicate_usage":
-      return `${d.exactCount} exact, ${d.probableCount} probable`;
-    case "reconcile_invoice":
-      return `${d.status}`;
-    default:
-      return "completed";
-  }
+function inputFor<N extends ToolName>(
+  tool: N,
+  record: InvestigationRecord,
+  service?: string
+): ToolInput<N> | null {
+  return (INPUT_BUILDERS[tool] as InputBuilder<N>)(record, service) || null;
+}
+
+/**
+ * A one-line factual outcome per step, shown to the reader. Typed per tool, so
+ * it cannot summarise a field the tool stopped returning.
+ */
+type Summariser<N extends ToolName> = (data: ToolOutput<N>) => string;
+
+const SUMMARISERS: { [N in ToolName]: Summariser<N> } = {
+  get_account_context: (d) => d.displayName,
+  compare_invoices: (d) => `variance ${d.varianceCents} cents`,
+  decompose_variance: (d) => `${d.explainedPercent.toFixed(2)}% explained`,
+  get_usage_timeseries: (d) => `${d.totalQuantity} units`,
+  get_price_versions: (d) => (d.priceChanged ? "price changed" : "no price change"),
+  detect_usage_change_point: (d) =>
+    d.changeDate ? `change on ${d.changeDate}` : "no change point",
+  get_account_events: (d) => `${d.events.length} events in window`,
+  check_duplicate_usage: (d) => `${d.exactCount} exact, ${d.probableCount} probable`,
+  reconcile_invoice: (d) => d.status
+};
+
+function summarise<N extends ToolName>(tool: N, data: ToolOutput<N>): string {
+  return (SUMMARISERS[tool] as Summariser<N>)(data);
 }
 
 /**
  * Executes one allowlisted tool with the server-built input, folding the
  * result into the record. Returns the record unchanged if the budget is spent.
  */
-async function callTool(
+async function callTool<N extends ToolName>(
   record: InvestigationRecord,
-  tool: string,
+  tool: N,
   deps: LoopDeps,
   service?: string
 ): Promise<InvestigationRecord> {
@@ -278,7 +339,7 @@ async function callTool(
     };
   }
 
-  let result: ToolResult<unknown> = await deps.runner.run(tool, input);
+  let result: ToolResult<ToolOutput<N>> = await deps.runner.run(tool, input);
   let attempts = 1;
   // One retry, and only for a failure the tool itself marked retryable.
   while (
@@ -334,32 +395,26 @@ async function callTool(
  * flat charges in this dataset with no subscription behind them, so arithmetic
  * consistency is all that can be said about them.
  */
-function captureUnverifiedFixedCharges(
+function captureUnverifiedFixedCharges<N extends ToolName>(
   current: string[],
-  tool: string,
-  data: unknown
+  tool: N,
+  data: ToolOutput<N>
 ): string[] {
   if (tool !== "reconcile_invoice") return current;
-  const d = data as { unverifiedFixedCharges?: string[] };
-  return Array.isArray(d.unverifiedFixedCharges)
-    ? d.unverifiedFixedCharges
-    : current;
+  // Comparing `tool` does not narrow `N`, so the compiler cannot follow this
+  // one step. The runtime check immediately above is what makes it sound.
+  const report = data as ToolOutput<"reconcile_invoice">;
+  return report.unverifiedFixedCharges ?? current;
 }
 
-function captureServiceEffects(
+function captureServiceEffects<N extends ToolName>(
   current: ServiceEffectSummary[],
-  tool: string,
-  data: unknown
+  tool: N,
+  data: ToolOutput<N>
 ): ServiceEffectSummary[] {
   if (tool !== "decompose_variance") return current;
-  const d = data as {
-    services?: {
-      serviceName: string;
-      currentQuantity: number | null;
-      totalEffectCents: number;
-    }[];
-  };
-  if (!Array.isArray(d.services)) return current;
+  // As above: guarded by the check on the line before, not by an assumption.
+  const d = data as ToolOutput<"decompose_variance">;
 
   return d.services.map((s) => ({
     serviceName: s.serviceName,
@@ -494,8 +549,7 @@ async function classifyPeriods(
   });
   const periods = isFailure(context)
     ? []
-    : (context.data as { availableInvoices: { period: string }[] })
-        .availableInvoices.map((i) => i.period);
+    : context.data.availableInvoices.map((i) => i.period);
 
   // Checked against what the reader actually typed, before the model is asked.
   //
@@ -669,8 +723,11 @@ export async function runInvestigationTurn(
     record = applyHypotheses(record, update);
     // `update.reason` is model reasoning and is deliberately not persisted.
 
+    // The narrowing boundary for model input: a name the model supplied is a
+    // plain string until `isConditionalTool` vouches for it.
     const selected = update.nextTools.filter(
-      (tool) => isConditionalTool(tool) && !completed.includes(tool)
+      (tool): tool is ToolName =>
+        isConditionalTool(tool) && !completed.includes(tool)
     );
 
     record = { ...record, metrics: { ...record.metrics, planningCycles: record.metrics.planningCycles + 1 } };
@@ -711,6 +768,9 @@ export async function runInvestigationTurn(
     for (const id of missing) {
       if (record.metrics.toolCalls >= MAX_TOOL_CALLS_PER_TURN) break;
       const [tool, service] = id.split(":");
+      // Ids are built from the allowlist, so this holds; the guard is what lets
+      // the compiler know it, and what would catch a malformed id.
+      if (!isAllowedTool(tool)) continue;
       record = await callTool(record, tool, deps, service);
     }
   }
