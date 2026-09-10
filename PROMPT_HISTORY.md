@@ -919,3 +919,41 @@ split into an explicit-years case and a bare-month case.
 
 425 tests, up from 419. Mutation-checked: removing the override fails three.
 Golden facts unchanged.
+
+---
+
+### Review recommendation — one investigation policy across all runners
+
+> Golden fixtures can agree while a Workers AI repricing scenario receives
+> different coverage.
+
+Confirmed by probe before changing anything: with Workers AI repriced
+mid-window, the pure-domain path returned `price_changed: false` where
+production returned `true`. Real divergence, invisible to every existing test,
+because the golden dataset reprices nothing.
+
+Two changes. `src/domain/servicePolicy.ts` now owns which services are metered
+and which is the driver, and all three paths read it. And the deterministic
+runner stopped being a second implementation of the playbook — it calls
+`runInvestigationTurn` with `DeterministicModelClient`, which deleted 291 lines
+of parallel orchestration.
+
+`analyseInvoiceVariance` stays independent on purpose, and I think this is the
+line worth drawing: a second implementation of the *arithmetic* is a test, and
+the cross-path equality assertion has caught drift repeatedly. A second
+implementation of the *procedure* is a bug waiting for a dataset that can show
+it. Share the policy, keep the maths independent.
+
+Four existing assertions changed meaning, all in the same direction: the runner
+now reports 11 steps rather than 9, 12 executions with one cache hit rather than
+9 with none, both services' price versions rather than the driver's, and a
+missing period is declined before a call is spent rather than failing on the
+lookup.
+
+430 tests, up from 425. Mutation-checked: reverting the domain path to the focus
+service alone fails three parity tests. Golden facts unchanged.
+
+One thing I got wrong on the way: I wrote the duplicate scenario as an *exact*
+duplicate. Exact means a repeated `event_id`, which a primary key makes
+unstorable — a copied event with a new id and an identical fingerprint is a
+*probable* duplicate. The test caught it.

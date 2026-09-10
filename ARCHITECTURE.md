@@ -845,3 +845,50 @@ force, as before.
 This closes the substitution family properly. Finding 9 stopped the agent
 answering about a period the account does not have; this stops it answering
 about a period the reader did not ask for.
+
+## 21. Addendum: one investigation policy, three entry points
+
+Review found real behavioural divergence hiding behind an agreeing fixture.
+
+Three paths run the invoice-variance playbook: the production agent loop, the
+deterministic runner (`npm run investigate`), and the pure-domain analysis
+(`npm run golden`). When finding 13 taught the loop to check pricing and
+duplicates once per metered service, the other two kept checking the focus
+service alone.
+
+All three still agreed on the golden facts, because nothing in the seeded data
+is repriced or duplicated. Probed with a mid-window Workers AI reprice, the
+domain path returned `price_changed: false` while production returned `true`.
+
+**A fixture that agrees is not an implementation that agrees.** The cross-path
+equality assertion — the thing that had caught drift repeatedly — was checking
+one dataset, and the divergence lived everywhere else.
+
+### What is shared and what stays separate
+
+`src/domain/servicePolicy.ts` now owns the two policy decisions: which services
+are metered, and which is the driver. All three paths read it.
+
+The deterministic runner is no longer a second implementation of the playbook.
+It calls `runInvestigationTurn` with `DeterministicModelClient` — "deterministic"
+means no LLM, not a separate procedure. Its value was never a second opinion
+about ordering; it was proving the read path through repositories and tools,
+which it still does. That deleted 291 lines.
+
+`analyseInvoiceVariance` stays independent, deliberately. It is different code
+computing the same money from the same dataset with no D1 and no tools, and that
+independence is what makes the equality assertion meaningful. What it gives up is
+having its own opinion about *which services to check* — that is policy, not
+arithmetic.
+
+The rule: **share the policy, keep the arithmetic independent.** A second
+implementation of the maths is a test. A second implementation of the procedure
+is a bug waiting for a dataset that can show it.
+
+### Validation
+
+`test/integration/entryPointParity.spec.ts` runs all three paths over three
+datasets — the golden case, a Workers AI reprice, and a Workers AI double-ingest
+— and asserts they agree fact for fact. Each scenario puts the interesting event
+on the service that is never the driver, which is precisely where the old
+divergence lived.

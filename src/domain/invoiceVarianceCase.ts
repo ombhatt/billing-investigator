@@ -1,9 +1,10 @@
 import { correlateEvents, detectChangePoint, type DailyPoint } from "./changePoint.js";
 import { compareInvoices } from "./compare.js";
 import { evaluateConfidence } from "./confidence.js";
-import { checkDuplicates } from "./duplicates.js";
+import { checkDuplicates, mergeDuplicateReports } from "./duplicates.js";
 import { periodEnd, periodStart } from "./period.js";
 import { effectivePrice, priceChanged, priceVersionsOverlapping } from "./rating.js";
+import { meteredServiceNames } from "./servicePolicy.js";
 import { reconcileInvoice } from "./reconciliation.js";
 import type { BillingDataset, Period } from "./types.js";
 import { decomposeVariance } from "./variance.js";
@@ -58,20 +59,21 @@ export function analyseInvoiceVariance(input: InvoiceVarianceInput) {
     comparison
   });
 
-  // Price check spans both periods so a mid-window change would be caught.
+  // Price check spans both periods so a mid-window change would be caught, and
+  // covers every metered service rather than the driver alone: "contract
+  // pricing did not change" is a claim about the invoice, so it needs a check
+  // of the invoice. Checking only the focus service meant a repriced Workers AI
+  // went unreported here while the agent path caught it — a divergence the
+  // golden fixture could not show, since nothing in it is repriced.
   const windowFrom = periodStart(comparisonPeriod);
   const windowTo = periodEnd(currentPeriod);
-  const priceDidChange = priceChanged(
-    dataset.priceVersions,
-    focusService,
-    windowFrom,
-    windowTo
+  const metered = meteredServiceNames(decomposition.services);
+
+  const priceDidChange = metered.some((service) =>
+    priceChanged(dataset.priceVersions, service, windowFrom, windowTo)
   );
-  const priceVersions = priceVersionsOverlapping(
-    dataset.priceVersions,
-    focusService,
-    windowFrom,
-    windowTo
+  const priceVersions = metered.flatMap((service) =>
+    priceVersionsOverlapping(dataset.priceVersions, service, windowFrom, windowTo)
   );
 
   // Daily series for the focus service across the current period, all zones.
@@ -97,13 +99,24 @@ export function analyseInvoiceVariance(input: InvoiceVarianceInput) {
     ? correlateEvents(dataset.accountEvents, changePoint.changeDate)
     : [];
 
-  const duplicates = checkDuplicates(
-    dataset.usageEvents.filter(
-      (e) =>
-        e.serviceName === focusService && e.occurredAt.startsWith(currentPeriod)
-    ),
-    focusPrice
-  );
+  // Duplicates likewise: "no duplicate usage was found" is invoice-wide, so
+  // every metered service is checked and the counts accumulate.
+  const duplicates = metered
+    .map((service) =>
+      checkDuplicates(
+        dataset.usageEvents.filter(
+          (e) =>
+            e.serviceName === service && e.occurredAt.startsWith(currentPeriod)
+        ),
+        effectivePrice(
+          dataset.priceVersions,
+          service,
+          periodStart(currentPeriod),
+          periodEnd(currentPeriod)
+        )
+      )
+    )
+    .reduce(mergeDuplicateReports);
 
   const reconciliation = reconcileInvoice({
     accountId: dataset.account.accountId,

@@ -1,4 +1,9 @@
 import { periodEnd, periodsMentioned, periodStart } from "../domain/period.js";
+import {
+  driverService,
+  meteredServiceNames,
+  type ServiceCandidate
+} from "../domain/servicePolicy.js";
 import { applyToolFacts, emptyFacts } from "../tools/facts.js";
 import type { ToolRunner } from "../tools/registry.js";
 import { isFailure, type ToolResult } from "../types/tools.js";
@@ -122,10 +127,19 @@ function expandPerServiceSteps(
  * the invoice. Fixed-fee lines have no usage to check and are excluded.
  */
 export function meteredServices(record: InvestigationRecord): string[] {
-  return [...record.serviceEffects]
-    .filter((s) => s.metered)
-    .map((s) => serviceName(s))
-    .sort();
+  return meteredServiceNames(asCandidates(record));
+}
+
+/**
+ * The record stores `metered` as a boolean; the shared policy reads a quantity.
+ * One conversion here keeps the policy free of the record's shape.
+ */
+function asCandidates(record: InvestigationRecord): ServiceCandidate[] {
+  return record.serviceEffects.map((s) => ({
+    serviceName: s.serviceName,
+    currentQuantity: s.metered ? 1 : null,
+    totalEffectCents: s.totalEffectCents
+  }));
 }
 
 /**
@@ -136,14 +150,7 @@ export function pickFocusService(
   record: InvestigationRecord,
   metered: string[]
 ): string {
-  const ranked = [...record.serviceEffects]
-    .filter((s) => s.metered)
-    .sort((a, b) => Math.abs(b.totalEffectCents) - Math.abs(a.totalEffectCents));
-  return ranked[0] ? serviceName(ranked[0]) : (metered[0] ?? record.focusService);
-}
-
-function serviceName(effect: { serviceName: string }): string {
-  return effect.serviceName;
+  return driverService(asCandidates(record), metered[0] ?? record.focusService);
 }
 
 /** Tool arguments are built by the server from the investigation record. */

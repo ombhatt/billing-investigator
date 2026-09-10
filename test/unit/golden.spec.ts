@@ -56,9 +56,13 @@ describe("golden fact block", () => {
 
     // 100% explained, nothing left over.
     expect(analysis.decomposition.unexplainedCents).toBe(0);
-    // Price ruled out by an actual version lookup, not an assumption.
-    expect(analysis.priceVersions).toHaveLength(1);
-    expect(analysis.priceVersions[0].priceVersionId).toBe("price-workers-2026-01");
+    // Price ruled out by an actual version lookup, not an assumption — and for
+    // every metered service, since "pricing did not change" is a claim about
+    // the whole invoice. One version each for Workers and Workers AI.
+    expect(analysis.priceVersions.map((p) => p.priceVersionId).sort()).toEqual([
+      "price-workers-2026-01",
+      "price-workers-ai-2026-01"
+    ]);
     // Correlation, never causation.
     expect(analysis.correlatedEvents[0].event.eventType).toBe("deployment");
     expect(analysis.changePoint.method).toMatch(/median/);

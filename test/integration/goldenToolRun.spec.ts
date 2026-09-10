@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
 import { goldenFacts } from "../../src/domain/invoiceVarianceCase.js";
-import { runInvestigation } from "../../src/tools/investigationRunner.js";
+import { runInvestigation } from "../../src/agent/deterministicRun.js";
 import { seedDataset } from "./seedD1.js";
 import type { ToolDeps } from "../../src/tools/createTool.js";
 
@@ -59,7 +59,10 @@ describe("golden investigation through the tool layer", () => {
     expect(facts).toEqual(goldenFacts({ dataset, ...request }));
   });
 
-  it("completes all nine playbook steps in order", async () => {
+  it("runs the same playbook production runs, per metered service", async () => {
+    // Eleven, not nine: pricing and duplicates run once per metered service.
+    // This entry point used to have its own ordering and its own choice of
+    // services, which is exactly how it drifted from production.
     const { steps } = await runInvestigation(deps, request);
 
     expect(steps.map((s) => s.tool)).toEqual([
@@ -68,17 +71,27 @@ describe("golden investigation through the tool layer", () => {
       "decompose_variance",
       "get_usage_timeseries",
       "get_price_versions",
+      "get_price_versions",
       "detect_usage_change_point",
       "get_account_events",
+      "check_duplicate_usage",
       "check_duplicate_usage",
       "reconcile_invoice"
     ]);
     expect(steps.every((s) => s.status === "completed")).toBe(true);
+
+    // Both metered services are named, so neither check is a claim about one
+    // service dressed up as a claim about the invoice.
+    const labels = steps.map((s) => s.label).join(" | ");
+    expect(labels).toContain("Checking contract pricing — Workers");
+    expect(labels).toContain("Checking contract pricing — Workers AI");
+    expect(labels).toContain("Checking for duplicate usage — Workers");
+    expect(labels).toContain("Checking for duplicate usage — Workers AI");
   });
 
   it("runs entirely without the model or the network", async () => {
     const { executions } = await runInvestigation(deps, request);
-    expect(executions).toHaveLength(9);
+    expect(executions).toHaveLength(12);
     expect(executions.every((e) => !("error" in e.result))).toBe(true);
   });
 
@@ -93,13 +106,14 @@ describe("golden investigation through the tool layer", () => {
     expect(labels).toContain("Duplicate usage check");
     expect(labels).toContain("Invoice reconciliation");
 
-    // Zone attribution, so "which zone?" is answerable from evidence at all.
-    // Note this is the split of the period's total usage, not of the increase:
-    // the primary zone holds 83% of August volume while carrying ~97% of the
-    // growth, and only the former is derivable from a single-period series.
+    // Two different zone questions, two different cards. The period split says
+    // api holds 83% of August; the growth card says it drove 96% of the rise.
     const byZone = evidence.find((e) => e.label === "Workers usage by zone")!;
     expect(byZone.value).toMatch(/zone-api-acme: [\d,]+ requests \(83%\)/);
     expect(byZone.value).toContain("zone-web-acme");
+
+    const growth = evidence.find((e) => e.label === "Workers growth by zone")!;
+    expect(growth.value).toContain("% of the increase");
 
     // Every card names its tool and carries a status from the fixed vocabulary.
     for (const card of evidence) {
@@ -132,10 +146,15 @@ describe("golden investigation through the tool layer", () => {
     ).toBe(true);
   });
 
-  it("reuses nothing it has not already fetched", async () => {
-    // Nine distinct calls, so nothing should be served from cache on a fresh run.
+  it("serves a repeat call from cache rather than re-reading D1", async () => {
+    // The account context is fetched to validate the periods, then again as the
+    // first playbook step. Exactly one execution should be a cache hit — more
+    // would mean redundant work, none would mean the cache is not wired in.
     const { executions } = await runInvestigation(deps, request);
-    expect(executions.every((e) => !e.cached)).toBe(true);
+    const cached = executions.filter((e) => e.cached);
+
+    expect(cached).toHaveLength(1);
+    expect(cached[0].tool).toBe("get_account_context");
   });
 });
 
@@ -147,8 +166,10 @@ describe("the runner refuses to overreach", () => {
   });
 
   it("fails loudly when a required period has no invoice", async () => {
+    // It now declines before spending a call rather than failing on the lookup,
+    // and names the period it does not have.
     await expect(
       runInvestigation(deps, { ...request, comparisonPeriod: "2026-01" })
-    ).rejects.toThrow(/INVOICE_NOT_FOUND/);
+    ).rejects.toThrow(/did not start.*2026-01/);
   });
 });

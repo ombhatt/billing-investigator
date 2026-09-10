@@ -144,3 +144,30 @@ export function checkDuplicates(
     method: DUPLICATE_METHOD
   };
 }
+
+/**
+ * Combines per-service duplicate reports into one invoice-wide report.
+ *
+ * "No duplicate usage was found" is a claim about the invoice, so it has to be
+ * backed by a check of every metered service on it. Counts, quantities and
+ * costs add; groups and sampled records concatenate; `method` is identical
+ * across services and is carried through unchanged.
+ */
+export function mergeDuplicateReports(
+  a: DuplicateReport,
+  b: DuplicateReport
+): DuplicateReport {
+  return {
+    exactCount: a.exactCount + b.exactCount,
+    exactQuantity: a.exactQuantity + b.exactQuantity,
+    exactCostCents: a.exactCostCents + b.exactCostCents,
+    probableCount: a.probableCount + b.probableCount,
+    probableQuantity: a.probableQuantity + b.probableQuantity,
+    probableCostCents: a.probableCostCents + b.probableCostCents,
+    exactGroups: [...a.exactGroups, ...b.exactGroups],
+    probableGroups: [...a.probableGroups, ...b.probableGroups],
+    fingerprintsChecked: a.fingerprintsChecked + b.fingerprintsChecked,
+    sampledRecordIds: [...a.sampledRecordIds, ...b.sampledRecordIds],
+    method: a.method
+  };
+}
