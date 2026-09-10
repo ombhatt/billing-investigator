@@ -232,6 +232,77 @@ describe("playbook execution", () => {
   });
 });
 
+describe("unperformed diagnostics are not treated as checked", () => {
+  /** Ends planning on the first cycle without selecting anything. */
+  class EarlyStop extends ScriptedModel {
+    override async planNext(input: PlanInput): Promise<PlanUpdate> {
+      await super.planNext(input);
+      return { nextTools: [], reason: "", hypothesisUpdates: [], done: true };
+    }
+  }
+
+  it("stays unresolved when the model skips the usage diagnostics", async () => {
+    // Review reproduced this returning completed / high confidence / no
+    // blockers, having never checked duplication, pricing, usage shape or
+    // operational correlation.
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      deps(new EarlyStop())
+    );
+
+    expect(record.state).toBe("unresolved");
+    expect(record.summary!.invoiceAppearsCorrect).toBe(false);
+    expect(record.facts.confidence).not.toBe("high");
+  });
+
+  it("names every diagnostic it did not perform", async () => {
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      deps(new EarlyStop())
+    );
+
+    const blockers = record.blockers.join(" ");
+    expect(blockers).toContain("diagnostics not performed");
+    for (const tool of [
+      "get_price_versions",
+      "get_usage_timeseries",
+      "detect_usage_change_point",
+      "check_duplicate_usage"
+    ]) {
+      expect(blockers).toContain(tool);
+    }
+  });
+
+  it("does not read an unchecked duplicate count as zero duplicates", async () => {
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      deps(new EarlyStop())
+    );
+
+    // Unchecked stays unchecked, and cannot be quietly cleared.
+    expect(record.facts.exact_duplicate_count).toBeNull();
+    expect(record.facts.probable_duplicate_count).toBeNull();
+    expect(record.summary!.invoiceAppearsCorrect).toBe(false);
+  });
+
+  it("still completes when the diagnostics are actually run", async () => {
+    // The requirement is derived from the variance, so a model that runs the
+    // applicable checks reaches the same conclusion as before.
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      deps(new ScriptedModel())
+    );
+
+    expect(record.state).toBe("completed");
+    expect(record.blockers).toEqual([]);
+    expect(record.facts.confidence).toBe("high");
+  });
+});
+
 describe("bounded limits", () => {
   it("never exceeds four planning cycles", async () => {
     const model = new ScriptedModel({

@@ -4,6 +4,44 @@ import { REQUIRED_TOOLS } from "./playbooks/invoiceVariance.js";
 
 export const MIN_EXPLAINED_PERCENT = 95;
 
+/**
+ * A diagnostic that has not run is not the same as one that ran and found
+ * nothing, and completion must not treat it as such. Review showed a model that
+ * ended planning immediately still receiving a high-confidence "invoice appears
+ * correct" — duplication, pricing, usage shape and operational correlation all
+ * unexamined, because only the prelude and reconciliation were ever required
+ * and `?? 0` turned an unchecked duplicate count into a clean one.
+ *
+ * Which diagnostics are required is therefore derived from what the
+ * deterministic variance actually shows, not left to the model. PRD §10.5 rule
+ * 5: when consumption materially changes, inspect its time series, change
+ * point, operational events and possible duplicates.
+ */
+export function applicableDiagnostics(facts: InvestigationFacts): string[] {
+  const required: string[] = [];
+
+  // Any movement at all has to have price ruled in or out.
+  if (facts.variance_cents !== null && facts.variance_cents !== 0) {
+    required.push("get_price_versions");
+  }
+
+  // Consumption moved, so its shape, onset and possible duplication matter.
+  if (facts.volume_effect_cents !== null && facts.volume_effect_cents !== 0) {
+    required.push(
+      "get_usage_timeseries",
+      "detect_usage_change_point",
+      "check_duplicate_usage"
+    );
+  }
+
+  // Only meaningful once a change point exists to anchor the window.
+  if (facts.change_date !== null) {
+    required.push("get_account_events");
+  }
+
+  return required;
+}
+
 export interface CompletionAssessment {
   invoiceAppearsCorrect: boolean;
   confidence: Confidence;
@@ -30,6 +68,17 @@ export function assessCompletion(input: {
   if (missingRequired.length > 0) {
     blockers.push(`required checks did not run: ${missingRequired.join(", ")}`);
   }
+
+  // Diagnostics the variance itself makes applicable. The model chooses the
+  // order and may add more, but it cannot decide to skip these.
+  const missingDiagnostics = applicableDiagnostics(facts).filter(
+    (tool) => !completedTools.includes(tool)
+  );
+  if (missingDiagnostics.length > 0) {
+    blockers.push(
+      `diagnostics not performed: ${missingDiagnostics.join(", ")}`
+    );
+  }
   if (failedTools.length > 0) {
     blockers.push(`checks failed: ${failedTools.join(", ")}`);
   }
@@ -49,10 +98,17 @@ export function assessCompletion(input: {
     );
   }
 
-  // A duplicate that the invoice also bills is a contradiction between sources.
-  const duplicates =
-    (facts.exact_duplicate_count ?? 0) + (facts.probable_duplicate_count ?? 0);
-  const materialConflict = duplicates > 0;
+  // Only a duplicate check that actually ran can clear duplicates. An
+  // unchecked count is absence of evidence, not evidence of absence — it is
+  // reported above as a missing diagnostic instead of quietly reading as zero.
+  const duplicatesChecked =
+    completedTools.includes("check_duplicate_usage") &&
+    facts.exact_duplicate_count !== null &&
+    facts.probable_duplicate_count !== null;
+  const duplicates = duplicatesChecked
+    ? facts.exact_duplicate_count! + facts.probable_duplicate_count!
+    : 0;
+  const materialConflict = duplicatesChecked && duplicates > 0;
   if (materialConflict) {
     blockers.push(`${duplicates} duplicate usage group(s) found`);
   }
@@ -60,7 +116,10 @@ export function assessCompletion(input: {
   const { confidence, reasons } = evaluateConfidence({
     explainedPercent: explained ?? 0,
     reconciliationPassed: facts.reconciliation_status === "passed",
-    requiredChecksComplete: missingRequired.length === 0 && failedTools.length === 0,
+    requiredChecksComplete:
+      missingRequired.length === 0 &&
+      missingDiagnostics.length === 0 &&
+      failedTools.length === 0,
     materialConflict
   });
 

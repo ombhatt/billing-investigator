@@ -516,3 +516,46 @@ volume" passes while "dep-1842 caused the increase" does not.
 287 tests, up from 263. Mutation-checked: neutering the guard fails six tests
 across unit and integration. Documented limit — bare quantities such as
 "1,488 events" are not yet validated, only currency, percentages, dates and ids.
+
+### Review finding 4 — 2026-09-10 · Claude Code (Opus 5)
+
+**P1: completion treated unperformed diagnostics as sufficiently checked.**
+Reproduced with a model that ends planning on the first cycle:
+
+```
+STATE      >>> completed
+CORRECT?   >>> true
+CONFIDENCE >>> high
+BLOCKERS   >>> []
+DUPS       >>> exact= null  probable= null
+PRICE      >>> null  CHANGEDATE: null
+RAN        >>> get_account_context, compare_invoices, decompose_variance, reconcile_invoice
+SKIPPED    >>> usage timeseries, price versions, change point, account events, duplicates
+```
+
+The agent told the user the invoice appears correct, with high confidence and no
+caveats, having never looked at duplication, pricing, usage shape or operational
+correlation. `(facts.exact_duplicate_count ?? 0)` is what hid it: `null` meaning
+"never checked" became `0` meaning "checked, none found".
+
+Only the prelude and reconciliation were required; everything else was the
+model's choice. That contradicts PRD §10.5 rule 5.
+
+Fixed by deriving the required set from the deterministic variance rather than
+leaving it to the model: variance ≠ 0 requires the price check; a non-zero
+volume effect requires usage series, change point and duplicate checks; a found
+change point requires the events check. Missing any is a blocker, which blocks
+both "appears correct" and high confidence. Duplicates can only be cleared by a
+check that ran.
+
+This needed `volume_effect_cents` and `price_effect_cents` in the fact block, and
+adding them broke the golden assertions in all three paths — which is the design
+working: domain, tools and agent blocks are compared for exact equality, so a
+fact cannot be added to one without the others noticing. Updated all three; the
+§20.4 values are unchanged.
+
+291 tests, up from 287. Mutation-checked: removing the derivation fails three.
+
+Note on severity — reported as P1, but an agent claiming an invoice is correct
+without checking duplication is closer in kind to findings 2 and 3 than the label
+suggests. Fixed at the same priority.

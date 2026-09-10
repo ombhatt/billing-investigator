@@ -18,6 +18,9 @@ export interface InvestigationFacts {
   probable_duplicate_count: number | null;
   reconciliation_status: "passed" | "failed" | null;
   explained_percent: number | null;
+  /** Deterministic signal for "consumption moved", used to derive required checks. */
+  volume_effect_cents: number | null;
+  price_effect_cents: number | null;
   confidence: Confidence | null;
 }
 
@@ -36,6 +39,8 @@ export function emptyFacts(): InvestigationFacts {
     probable_duplicate_count: null,
     reconciliation_status: null,
     explained_percent: null,
+    volume_effect_cents: null,
+    price_effect_cents: null,
     confidence: null
   };
 }
@@ -75,8 +80,17 @@ export function applyToolFacts(
     }
 
     case "decompose_variance": {
-      const d = data as { explainedPercent: number };
-      return { ...facts, explained_percent: d.explainedPercent };
+      const d = data as {
+        explainedPercent: number;
+        volumeEffectCents: number;
+        priceEffectCents: number;
+      };
+      return {
+        ...facts,
+        explained_percent: d.explainedPercent,
+        volume_effect_cents: d.volumeEffectCents,
+        price_effect_cents: d.priceEffectCents
+      };
     }
 
     case "get_price_versions": {

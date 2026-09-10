@@ -159,6 +159,10 @@ export function goldenFacts(input: InvoiceVarianceInput) {
     probable_duplicate_count: analysis.duplicates.probableCount,
     reconciliation_status: analysis.reconciliation.status,
     explained_percent: analysis.decomposition.explainedPercent,
+    // Carried because completion derives which diagnostics are applicable from
+    // them: a non-zero volume effect is what makes the usage checks mandatory.
+    volume_effect_cents: analysis.decomposition.volumeEffectCents,
+    price_effect_cents: analysis.decomposition.priceEffectCents,
     confidence: analysis.confidence.confidence
   };
 }

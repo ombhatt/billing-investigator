@@ -50,6 +50,8 @@ describe("golden investigation through the agent", () => {
       probable_duplicate_count: 0,
       reconciliation_status: "passed",
       explained_percent: 100,
+      volume_effect_cents: 482_000,
+      price_effect_cents: 0,
       confidence: "high"
     });
   });

@@ -421,3 +421,46 @@ which is why a test pins that exact sentence.
 
 Bare quantities ("1,488 events") are not currently validated; only currency,
 percentages, dates and identifiers are.
+
+---
+
+## 12. Addendum: unperformed diagnostics are not checked diagnostics
+
+Found in review after M5, alongside §9–§11.
+
+Only the prelude and reconciliation were ever *required*. Everything else —
+pricing, usage shape, change point, operational correlation, duplication — was
+conditional, and the model decided whether to run it. A model that ended
+planning on the first cycle therefore reached `completed`, **`confidence: high`,
+and zero blockers**, having examined none of it.
+
+The mechanism that hid it: `(facts.exact_duplicate_count ?? 0)`. A `null`
+meaning "never checked" became a `0` meaning "checked, none found", so the
+conflict assessment read clean. Absence of evidence was being treated as
+evidence of absence.
+
+That contradicts PRD §10.5 rule 5 — when consumption materially changes, inspect
+its time series, change point, operational events and possible duplicates.
+
+**Which diagnostics are required is now derived from the deterministic variance,
+not left to the model.** `applicableDiagnostics()` returns:
+
+| Condition | Required |
+|---|---|
+| invoice variance ≠ 0 | `get_price_versions` |
+| volume effect ≠ 0 | `get_usage_timeseries`, `detect_usage_change_point`, `check_duplicate_usage` |
+| a change point was found | `get_account_events` |
+
+Any of those missing is a blocker, which both prevents "appears correct" and
+stops confidence reaching high. Duplicates can only be *cleared* by a duplicate
+check that actually ran; unchecked stays unchecked.
+
+This required `volume_effect_cents` and `price_effect_cents` in the fact block —
+they are the deterministic signal for "consumption moved". Adding them meant
+updating the golden assertions in all three paths, which is the system working
+as intended: the three blocks are compared for exact equality, so a fact cannot
+be added to one without the others noticing.
+
+The model still chooses order, may add further checks, and may argue about what
+it found. It cannot decide that a check the variance makes applicable is
+unnecessary.

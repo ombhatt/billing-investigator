@@ -280,6 +280,8 @@ export async function runInvestigation(
       probable_duplicate_count: duplicates.probableCount,
       reconciliation_status: reconciliation.status,
       explained_percent: decomposition.explainedPercent,
+      volume_effect_cents: decomposition.volumeEffectCents,
+      price_effect_cents: decomposition.priceEffectCents,
       confidence: confidence.confidence
     }
   };
