@@ -1,5 +1,5 @@
-import { billingPeriod, cents, quantity } from "./units.js";
-import { periodEnd, periodOf, periodStart } from "./period.js";
+import { cents, quantity } from "./units.js";
+import { periodOf, periodStart } from "./period.js";
 import type { DailyUsage, PriceVersion, Zone } from "./types.js";
 import { rateUsage } from "./rating.js";
 
@@ -89,15 +89,4 @@ export function toBillableUsageRecords(
   }
 
   return records;
-}
-
-/** Convenience for the period a record set covers. */
-export function billingPeriodBounds(period: string): {
-  start: string;
-  end: string;
-} {
-  return {
-    start: `${periodStart(billingPeriod(period))}T00:00:00Z`,
-    end: `${periodEnd(billingPeriod(period))}T23:59:59Z`
-  };
 }

@@ -1151,3 +1151,42 @@ type now says so. Renaming would have added a layer to reproduce the shape the
 type already has, and put a documented golden-fact contract at risk to do it.
 
 489 tests, unchanged — this pass moved no behaviour. Golden facts unchanged.
+
+### Review recommendation — clean up the bloat
+
+> "This codebase and its tests seem too bloated for what it does… Measure
+> success by fewer independent implementations and easier changes — not a
+> target line count."
+
+Measured before agreeing. `src/` 8,606 lines against `test/` 6,890 — 0.8:1,
+which for financial code is low. The suite is not oversized. That reframed the
+question to redundancy, which is a real but much smaller problem.
+
+Three of the seven items described code the four preceding recommendations had
+already deleted: `investigationRunner.ts`, `buildTools()` (zero references
+anywhere), and prototype-shadowing tests. The dependency-injection item was
+already satisfied three times over. Worth noting for its own sake — a review
+against a stale snapshot reads as authoritative as one against HEAD, and the
+only defence is checking each claim against the repo rather than the prose.
+
+Applied: five genuinely dead exports, and the PRD §20.4 fact block consolidated
+from three verbatim copies into `test/support/goldenFacts.ts`. That last one
+needed thought, because the reviewer elsewhere asks to keep independently
+calculated expected values — but the three *implementations* still compute the
+block separately and compare against a transcription of published PRD figures.
+Independence of implementations, not of transcriptions. Mutation-checked:
+altering one field in the shared constant fails all three layers.
+
+103 lines removed, 8 added, no behaviour changed.
+
+Three items declined, each recorded in ARCHITECTURE.md §27. Replacing the
+adaptive loop with a fixed sequence would delete the behaviour the project
+exists to demonstrate, and the reviewer rightly flagged it as a product
+decision. Retiring `invoiceVarianceCase.ts` conflicts with the same review's
+request to keep independent expected values — it *is* the independent path, and
+the only one that runs without D1. Consolidating `src/agent/` reverses the same
+reviewer's earlier recommendation, which I had implemented; at 17 modules
+averaging 153 lines it is not the "dozens of one-function files" being warned
+against.
+
+489 tests, unchanged. Golden facts unchanged.

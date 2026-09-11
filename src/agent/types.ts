@@ -51,16 +51,6 @@ export interface ServiceEffectSummary {
   totalEffectCents: number;
 }
 
-export interface RecordedExecution {
-  tool: string;
-  input: unknown;
-  executedAt: string;
-  ok: boolean;
-  errorCode: string | null;
-  cached: boolean;
-  durationMs: number;
-}
-
 export interface FinalSummary {
   finding: string;
   evidence: string[];

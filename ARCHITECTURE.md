@@ -1201,3 +1201,67 @@ camelCase `ToolOutput` fields become the contract's snake_case keys. What was
 genuinely missing was any statement that this was deliberate, so a reader had no
 way to tell an intentional boundary from an inconsistency. The type now carries
 that note.
+
+## 27. Addendum: what the bloat review found
+
+A review asked whether the codebase and its tests were oversized. Measured
+first: `src/` is 8,606 lines, `test/` 6,890 — a ratio of **0.8 : 1**, which for
+financial code is low rather than high. The suite is not oversized; the
+question worth asking was whether it is *redundant*.
+
+Three of the review's seven items described code that the four preceding
+recommendations had already removed: `investigationRunner.ts` (retired in §21),
+`buildTools()` (no references anywhere in the repo), and tests shadowing private
+SDK methods (replaced by the `store()` seam in §25). Its dependency-injection
+item was likewise already satisfied — `ModelClient`, `ToolExecutor` and
+`InvestigationStore` are all injected.
+
+### What was actually removed
+
+Five exports with no reference outside their own definition: `negateCents`,
+`ACTIVE_STATES`, `SYSTEM_PROMPT_VERSION`, `RecordedExecution` (the pre-§25 audit
+row shape, superseded by `RecordedEnvelope`) and `billingPeriodBounds`.
+
+The PRD §20.4 fact block had been transcribed verbatim in three test files. It
+now lives once in `test/support/goldenFacts.ts`. This does not weaken the
+independence that matters: the three *implementations* still compute the block
+separately — pure domain, the nine tools against D1, and the agent loop — and
+each compares against a transcription of published figures. Mutation-checked by
+altering one field in the shared constant, which fails all three layers.
+
+103 lines removed, 8 added. No behaviour changed.
+
+### Declined: replacing the agent loop with a fixed sequence
+
+The review suggested a deterministic diagnostic sequence, with the model only
+interpreting the question and explaining results, and correctly flagged this as
+a product decision rather than a cleanup. Declined: PRD §10.5 and `CLAUDE.md`
+rule 10 specify a bounded adaptive loop, and it is the behaviour this project
+exists to demonstrate. It would also make `entryPointParity` tautological —
+comparing the coordinator to itself.
+
+### Declined: retiring `invoiceVarianceCase.ts`
+
+The same review asked to retire it while also asking that independently
+calculated expected values be kept in tests. It *is* that independent
+calculation. Its independence is at the policy level rather than the arithmetic
+— it imports the same domain functions the tools do — which is precisely the
+divergence §21 caught. It is also the only path that runs in plain Node with no
+D1 or Workers runtime, which is what `npm run golden` depends on.
+
+### Declined: consolidating the coordinator's modules
+
+The review cautioned against splitting the coordinator into "dozens of
+one-function files", which reverses its own earlier recommendation (§23).
+Measured: `src/agent/` is 17 modules averaging 153 lines, of which two are small
+(`stateOwnership` 27, `generation` 38), and `loop.ts` remains the largest module
+in the repo at 561 lines. The split landed roughly where this item says to aim —
+interpretation, execution, completion, presentation — so it stays.
+
+### Already satisfied
+
+Tool-contract tests are already parameterized: `describe.each(ALLOWED_TOOLS)`
+covers every allowlisted tool, guarded by a test asserting that a valid-input
+fixture exists for each. The two largest test files were checked for overlapping
+coverage and have none — `agent.spec.ts` holds eleven distinct guarantees and
+`tools.spec.ts` eight, each traceable to a separate finding.

@@ -121,10 +121,6 @@ export function subtractCents(a: Cents, b: Cents, what = "difference"): Cents {
   return result as Cents;
 }
 
-export function negateCents(value: Cents): Cents {
-  return -value as Cents;
-}
-
 export function absCents(value: Cents): Cents {
   return Math.abs(value) as Cents;
 }

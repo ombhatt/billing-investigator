@@ -21,14 +21,6 @@ const TRANSITIONS: Record<InvestigationState, InvestigationState[]> = {
   failed: ["planning", "investigating", "reconciling"]
 };
 
-export const ACTIVE_STATES: InvestigationState[] = [
-  "created",
-  "clarification_required",
-  "planning",
-  "investigating",
-  "reconciling"
-];
-
 export function canTransition(
   from: InvestigationState,
   to: InvestigationState

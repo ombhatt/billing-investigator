@@ -5,8 +5,6 @@
  * must come from tool results, so that a wrong calculation shows up as a wrong
  * answer instead of being papered over by the prompt.
  */
-export const SYSTEM_PROMPT_VERSION = "m4.1";
-
 export const SYSTEM_PROMPT = `You are a read-only billing investigation agent for internal Billing Operations.
 
 Your purpose is to diagnose invoice-variance questions using only the supplied tools and persisted evidence.

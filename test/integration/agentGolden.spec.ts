@@ -1,4 +1,5 @@
 import { per } from "./../support/values.js";
+import { GOLDEN_FACTS } from "../support/goldenFacts.js";
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
@@ -37,28 +38,7 @@ describe("golden investigation through the agent", () => {
   it("produces the PRD §20.4 fact block", async () => {
     const record = await runGolden();
 
-    expect(record.facts).toEqual({
-      current_total_cents: 2_172_000,
-      comparison_total_cents: 1_690_000,
-      variance_cents: 482_000,
-      percentage_variance_display: 28.5,
-      workers_variance_cents: 464_000,
-      workers_ai_variance_cents: 18_000,
-      price_changed: false,
-      change_date: "2026-08-14",
-      // The change point was accepted, and these record on what basis. A
-      // rejected candidate leaves all three null rather than the date alone.
-      change_point_material: true,
-      change_point_confidence: "high",
-      correlated_event_id: "dep-1842",
-      exact_duplicate_count: 0,
-      probable_duplicate_count: 0,
-      reconciliation_status: "passed",
-      explained_percent: 100,
-      volume_effect_cents: 482_000,
-      price_effect_cents: 0,
-      confidence: "high"
-    });
+    expect(record.facts).toEqual(GOLDEN_FACTS);
   });
 
   it("agrees with the pure-domain computation", async () => {
