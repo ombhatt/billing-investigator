@@ -1,3 +1,10 @@
+import {
+  addCents,
+  cents,
+  subtractCents,
+  type Cents,
+  type Quantity
+} from "./units.js";
 import { sumCents } from "./money.js";
 import { periodEnd, periodStart } from "./period.js";
 import { consumedInPeriod } from "./invoice.js";
@@ -13,25 +20,25 @@ import type {
 export interface ServiceEffects {
   serviceName: string;
   /** Metered services carry volume and price effects; fixed lines do not. */
-  volumeEffectCents: number;
-  priceEffectCents: number;
-  fixedFeeEffectCents: number;
-  totalEffectCents: number;
-  currentQuantity: number | null;
-  comparisonQuantity: number | null;
+  volumeEffectCents: Cents;
+  priceEffectCents: Cents;
+  fixedFeeEffectCents: Cents;
+  totalEffectCents: Cents;
+  currentQuantity: Quantity | null;
+  comparisonQuantity: Quantity | null;
   priceVersionIds: string[];
 }
 
 export interface VarianceDecomposition {
   services: ServiceEffects[];
-  volumeEffectCents: number;
-  priceEffectCents: number;
-  fixedFeeEffectCents: number;
-  creditEffectCents: number;
-  taxEffectCents: number;
-  totalEffectCents: number;
-  invoiceVarianceCents: number;
-  unexplainedCents: number;
+  volumeEffectCents: Cents;
+  priceEffectCents: Cents;
+  fixedFeeEffectCents: Cents;
+  creditEffectCents: Cents;
+  taxEffectCents: Cents;
+  totalEffectCents: Cents;
+  invoiceVarianceCents: Cents;
+  unexplainedCents: Cents;
   /** Clamped to [0, 100]. PRD §12.5. */
   explainedPercent: number;
   priceVersionIds: string[];
@@ -50,7 +57,7 @@ export function explainedPercent(
   return Math.min(100, Math.max(0, raw));
 }
 
-function fixedAmount(lines: InvoiceLine[], serviceName: string): number {
+function fixedAmount(lines: InvoiceLine[], serviceName: string): Cents {
   return sumCents(
     lines
       .filter((l) => l.serviceName === serviceName && l.lineType === "fixed")
@@ -122,19 +129,25 @@ export function decomposeVariance(input: {
     priceVersionIds.add(currentPrice.priceVersionId);
     priceVersionIds.add(comparisonPrice.priceVersionId);
 
-    const volumeEffectCents =
-      costOf(currentQuantity, comparisonPrice) -
-      costOf(comparisonQuantity, comparisonPrice);
-    const priceEffectCents =
-      costOf(currentQuantity, currentPrice) -
-      costOf(currentQuantity, comparisonPrice);
+    // Counterfactual decomposition, PRD §12.4: hold price still to isolate
+    // volume, then hold volume still to isolate price.
+    const volumeEffectCents = subtractCents(
+      costOf(currentQuantity, comparisonPrice),
+      costOf(comparisonQuantity, comparisonPrice),
+      "volume effect"
+    );
+    const priceEffectCents = subtractCents(
+      costOf(currentQuantity, currentPrice),
+      costOf(currentQuantity, comparisonPrice),
+      "price effect"
+    );
 
     services.push({
       serviceName,
       volumeEffectCents,
       priceEffectCents,
-      fixedFeeEffectCents: 0,
-      totalEffectCents: volumeEffectCents + priceEffectCents,
+      fixedFeeEffectCents: cents(0),
+      totalEffectCents: addCents(volumeEffectCents, priceEffectCents, "total effect"),
       currentQuantity,
       comparisonQuantity,
       priceVersionIds: [
@@ -144,13 +157,15 @@ export function decomposeVariance(input: {
   }
 
   for (const serviceName of fixedNames) {
-    const fixedFeeEffectCents =
-      fixedAmount(current.lines, serviceName) -
-      fixedAmount(comparison.lines, serviceName);
+    const fixedFeeEffectCents = subtractCents(
+      fixedAmount(current.lines, serviceName),
+      fixedAmount(comparison.lines, serviceName),
+      "fixed fee effect"
+    );
     services.push({
       serviceName,
-      volumeEffectCents: 0,
-      priceEffectCents: 0,
+      volumeEffectCents: cents(0),
+      priceEffectCents: cents(0),
       fixedFeeEffectCents,
       totalEffectCents: fixedFeeEffectCents,
       currentQuantity: null,
@@ -170,20 +185,38 @@ export function decomposeVariance(input: {
   // A larger credit reduces the invoice, so its effect carries the opposite
   // sign. Subtracting in this order rather than negating avoids producing -0,
   // which would survive into JSON output and test comparisons.
-  const creditEffectCents =
-    comparison.invoice.creditCents - current.invoice.creditCents;
-  const taxEffectCents = current.invoice.taxCents - comparison.invoice.taxCents;
+  const creditEffectCents = subtractCents(
+    comparison.invoice.creditCents,
+    current.invoice.creditCents,
+    "credit effect"
+  );
+  const taxEffectCents = subtractCents(
+    current.invoice.taxCents,
+    comparison.invoice.taxCents,
+    "tax effect"
+  );
 
-  const totalEffectCents =
-    volumeEffectCents +
-    priceEffectCents +
-    fixedFeeEffectCents +
-    creditEffectCents +
-    taxEffectCents;
+  const totalEffectCents = sumCents(
+    [
+      volumeEffectCents,
+      priceEffectCents,
+      fixedFeeEffectCents,
+      creditEffectCents,
+      taxEffectCents
+    ],
+    "total effect"
+  );
 
-  const invoiceVarianceCents =
-    current.invoice.totalCents - comparison.invoice.totalCents;
-  const unexplainedCents = invoiceVarianceCents - totalEffectCents;
+  const invoiceVarianceCents = subtractCents(
+    current.invoice.totalCents,
+    comparison.invoice.totalCents,
+    "invoice variance"
+  );
+  const unexplainedCents = subtractCents(
+    invoiceVarianceCents,
+    totalEffectCents,
+    "unexplained variance"
+  );
 
   return {
     services,

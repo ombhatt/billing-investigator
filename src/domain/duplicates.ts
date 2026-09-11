@@ -1,3 +1,10 @@
+import {
+  addCents,
+  cents,
+  sumQuantities,
+  type Cents,
+  type Quantity
+} from "./units.js";
 import { rateCents } from "./money.js";
 import type { PriceVersion, UsageEvent } from "./types.js";
 
@@ -41,16 +48,16 @@ export interface DuplicateGroup {
   key: string;
   eventIds: string[];
   /** Quantity attributable to the surplus copies, not the whole group. */
-  duplicateQuantity: number;
+  duplicateQuantity: Quantity;
 }
 
 export interface DuplicateReport {
   exactCount: number;
-  exactQuantity: number;
-  exactCostCents: number;
+  exactQuantity: Quantity;
+  exactCostCents: Cents;
   probableCount: number;
-  probableQuantity: number;
-  probableCostCents: number;
+  probableQuantity: Quantity;
+  probableCostCents: Cents;
   exactGroups: DuplicateGroup[];
   probableGroups: DuplicateGroup[];
   fingerprintsChecked: number;
@@ -58,9 +65,9 @@ export interface DuplicateReport {
   method: string;
 }
 
-function surplusQuantity(events: UsageEvent[]): number {
+function surplusQuantity(events: UsageEvent[]): Quantity {
   // The first occurrence is legitimate; every copy after it is the duplicate.
-  return events.slice(1).reduce((total, e) => total + e.quantity, 0);
+  return sumQuantities(events.slice(1).map((e) => e.quantity), "surplus quantity");
 }
 
 /**
@@ -116,17 +123,17 @@ export function checkDuplicates(
     }
   }
 
-  const exactQuantity = exactGroups.reduce(
-    (total, g) => total + g.duplicateQuantity,
-    0
+  const exactQuantity = sumQuantities(
+    exactGroups.map((g) => g.duplicateQuantity),
+    "exact duplicate quantity"
   );
-  const probableQuantity = probableGroups.reduce(
-    (total, g) => total + g.duplicateQuantity,
-    0
+  const probableQuantity = sumQuantities(
+    probableGroups.map((g) => g.duplicateQuantity),
+    "probable duplicate quantity"
   );
 
-  const priceOf = (quantity: number) =>
-    price ? rateCents(quantity, price.overageRateCents, price.unitDivisor) : 0;
+  const priceOf = (amount: Quantity) =>
+    price ? rateCents(amount, price.overageRateCents, price.unitDivisor) : cents(0);
 
   return {
     exactCount: exactGroups.length,
@@ -159,11 +166,11 @@ export function mergeDuplicateReports(
 ): DuplicateReport {
   return {
     exactCount: a.exactCount + b.exactCount,
-    exactQuantity: a.exactQuantity + b.exactQuantity,
-    exactCostCents: a.exactCostCents + b.exactCostCents,
+    exactQuantity: sumQuantities([a.exactQuantity, b.exactQuantity]),
+    exactCostCents: addCents(a.exactCostCents, b.exactCostCents),
     probableCount: a.probableCount + b.probableCount,
-    probableQuantity: a.probableQuantity + b.probableQuantity,
-    probableCostCents: a.probableCostCents + b.probableCostCents,
+    probableQuantity: sumQuantities([a.probableQuantity, b.probableQuantity]),
+    probableCostCents: addCents(a.probableCostCents, b.probableCostCents),
     exactGroups: [...a.exactGroups, ...b.exactGroups],
     probableGroups: [...a.probableGroups, ...b.probableGroups],
     fingerprintsChecked: a.fingerprintsChecked + b.fingerprintsChecked,

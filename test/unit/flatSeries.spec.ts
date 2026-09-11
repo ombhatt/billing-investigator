@@ -1,3 +1,4 @@
+import { day, per, q } from "../support/values.js";
 import { describe, expect, it } from "vitest";
 import {
   detectChangePoint,
@@ -23,8 +24,8 @@ import type { CompletionAssessment } from "../../src/agent/completion.js";
 
 const august = (quantity: (index: number) => number): DailyPoint[] =>
   Array.from({ length: 31 }, (_, index) => ({
-    date: `2026-08-${String(index + 1).padStart(2, "0")}`,
-    quantity: quantity(index)
+    date: day(`2026-08-${String(index + 1).padStart(2, "0")}`),
+    quantity: q(quantity(index))
   }));
 
 const FLAT = august(() => 1000);
@@ -126,8 +127,8 @@ describe("the summary claims no shift it cannot show", () => {
     );
 
     const summary = deterministicSummary(facts, [], assessment, {
-      currentPeriod: "2026-08",
-      comparisonPeriod: "2026-07"
+      currentPeriod: per("2026-08"),
+      comparisonPeriod: per("2026-07")
     });
     const text = [summary.finding, ...summary.evidence, summary.assessment].join(" ");
 

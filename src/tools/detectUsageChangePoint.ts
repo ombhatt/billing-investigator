@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { detectChangePoint, type DailyPoint } from "../domain/changePoint.js";
 import { formatUsd } from "../domain/money.js";
+import { isoDate, quantity } from "../domain/units.js";
 import { listPriceVersionsOverlapping } from "../repositories/pricingRepository.js";
 import { listDailyUsage } from "../repositories/usageRepository.js";
 import { createTool, NotFound } from "./createTool.js";
@@ -42,7 +43,7 @@ export const detectUsageChangePoint = createTool(
       byDate.set(row.usageDate, (byDate.get(row.usageDate) ?? 0) + row.quantity);
     }
     const series: DailyPoint[] = [...byDate.entries()]
-      .map(([date, quantity]) => ({ date, quantity }))
+      .map(([date, total]) => ({ date: isoDate(date), quantity: quantity(total) }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const prices = await listPriceVersionsOverlapping(

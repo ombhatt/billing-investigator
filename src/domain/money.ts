@@ -1,3 +1,11 @@
+import {
+  cents,
+  quantity as asQuantity,
+  sumCents as sumCheckedCents,
+  type Cents,
+  type Quantity
+} from "./units.js";
+
 /**
  * All money is integer cents. Binary floating point is never used for a
  * currency value. PRD §12.1.
@@ -16,10 +24,10 @@
  * to reason about in a double even when it stays under Number.MAX_SAFE_INTEGER.
  */
 export function rateCents(
-  quantity: number,
-  ratePerUnitCents: number,
+  quantity: Quantity | number,
+  ratePerUnitCents: Cents | number,
   unitDivisor: number
-): number {
+): Cents {
   if (!Number.isInteger(quantity) || quantity < 0) {
     throw new RangeError(`quantity must be a non-negative integer: ${quantity}`);
   }
@@ -33,13 +41,9 @@ export function rateCents(
   const numerator = BigInt(quantity) * BigInt(ratePerUnitCents);
   const denominator = BigInt(unitDivisor);
   // floor(n/d + 1/2) without leaving integer arithmetic.
-  const cents = (2n * numerator + denominator) / (2n * denominator);
+  const rated = (2n * numerator + denominator) / (2n * denominator);
 
-  const result = Number(cents);
-  if (!Number.isSafeInteger(result)) {
-    throw new RangeError(`rated charge exceeds safe integer range: ${cents}`);
-  }
-  return result;
+  return cents(Number(rated), "rated charge");
 }
 
 /**
@@ -47,8 +51,8 @@ export function rateCents(
  * PRD §12.4 requires the zero case to be explicit rather than Infinity or NaN.
  */
 export function percentageChange(
-  currentCents: number,
-  comparisonCents: number
+  currentCents: Cents,
+  comparisonCents: Cents
 ): number | null {
   if (comparisonCents === 0) return null;
   return ((currentCents - comparisonCents) / comparisonCents) * 100;
@@ -60,14 +64,25 @@ export function toOneDecimal(value: number): number {
 }
 
 /** Presentation boundary only. Never feed this back into a calculation. */
-export function formatUsd(cents: number): string {
-  const sign = cents < 0 ? "-" : "";
-  const absolute = Math.abs(cents);
+export function formatUsd(amount: Cents | number): string {
+  const sign = amount < 0 ? "-" : "";
+  const absolute = Math.abs(amount);
   const dollars = Math.trunc(absolute / 100);
   const remainder = absolute % 100;
   return `${sign}$${dollars.toLocaleString("en-US")}.${String(remainder).padStart(2, "0")}`;
 }
 
-export function sumCents(values: number[]): number {
-  return values.reduce((total, value) => total + value, 0);
+/**
+ * Sum of validated cents, re-exported so callers have one place to reach for.
+ *
+ * This used to be a bare `reduce` with no checks at all, two functions below a
+ * `rateCents` that validated every input and its result. A total that leaves
+ * the exactly-representable range is wrong by an unpredictable amount, and a
+ * total wrong by a cent is the one thing reconciliation exists to catch.
+ */
+export function sumCents(values: readonly Cents[], what = "total"): Cents {
+  return sumCheckedCents(values, what);
 }
+
+/** Marks a literal as cents at a call site that has already reasoned about it. */
+export { cents, asQuantity as quantity };

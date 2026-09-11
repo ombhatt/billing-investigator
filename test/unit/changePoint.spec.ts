@@ -1,3 +1,4 @@
+import { day, q } from "./../support/values.js";
 import { describe, expect, it } from "vitest";
 import {
   correlateEvents,
@@ -20,7 +21,7 @@ function augustWorkersSeries(): DailyPoint[] {
     byDate.set(row.usageDate, (byDate.get(row.usageDate) ?? 0) + row.quantity);
   }
   return [...byDate.entries()]
-    .map(([date, quantity]) => ({ date, quantity }))
+    .map(([date, total]) => ({ date: day(date), quantity: q(total) }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
@@ -78,8 +79,8 @@ describe("change-point detection", () => {
 
   it("reports no material change on a flat series", () => {
     const flat: DailyPoint[] = Array.from({ length: 31 }, (_, i) => ({
-      date: `2026-08-${String(i + 1).padStart(2, "0")}`,
-      quantity: 32_000_000
+      date: day(`2026-08-${String(i + 1).padStart(2, "0")}`),
+      quantity: q(32_000_000)
     }));
     const outcome = detectChangePoint(flat, price);
     expect(outcome.material).toBe(false);
@@ -88,7 +89,7 @@ describe("change-point detection", () => {
 });
 
 describe("event correlation", () => {
-  const correlated = correlateEvents(dataset.accountEvents, "2026-08-14");
+  const correlated = correlateEvents(dataset.accountEvents, day("2026-08-14"));
 
   it("ranks dep-1842 first by temporal proximity", () => {
     expect(correlated[0].event.eventId).toBe("dep-1842");

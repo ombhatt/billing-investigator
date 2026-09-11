@@ -1,3 +1,10 @@
+import {
+  billingPeriod,
+  cents,
+  isoDate,
+  quantity
+} from "../src/domain/units.js";
+
 /**
  * Every figure the golden scenario depends on, in one place. PRD §13.
  * All of it is fictional.
@@ -20,9 +27,11 @@ export const SECONDARY_ZONE = {
   zoneName: "www.acme.example"
 } as const;
 
-export const PERIODS = ["2026-06", "2026-07", "2026-08"] as const;
-export const COMPARISON_PERIOD = "2026-07";
-export const CURRENT_PERIOD = "2026-08";
+export const PERIODS = ["2026-06", "2026-07", "2026-08"].map((p) =>
+  billingPeriod(p)
+);
+export const COMPARISON_PERIOD = billingPeriod("2026-07");
+export const CURRENT_PERIOD = billingPeriod("2026-08");
 
 export const SERVICE_WORKERS = "Workers";
 export const SERVICE_WORKERS_AI = "Workers AI";
@@ -41,9 +50,9 @@ export const WORKERS_AI_QUANTITY: Record<string, number> = {
 };
 
 /** Fixed monthly lines, in cents. PRD §13.4. */
-export const PLATFORM_FEE_CENTS = 600_000; // $6,000
-export const R2_CENTS = 250_000; // $2,500
-export const D1_CENTS = 105_000; // $1,050
+export const PLATFORM_FEE_CENTS = cents(600_000); // $6,000
+export const R2_CENTS = cents(250_000); // $2,500
+export const D1_CENTS = cents(105_000); // $1,050
 
 export const SUBSCRIPTION_ID = "sub-abc123-enterprise";
 
@@ -96,12 +105,12 @@ export const WORKERS_PRICE = {
   priceVersionId: "price-workers-2026-01",
   serviceName: SERVICE_WORKERS,
   serviceFamily: "Workers",
-  includedQuantity: 100_000_000,
-  overageRateCents: 800, // $8.00
+  includedQuantity: quantity(100_000_000),
+  overageRateCents: cents(800), // $8.00
   unitDivisor: 1_000_000, // per million requests
   unit: "requests",
-  fixedFeeCents: 0,
-  effectiveFrom: "2026-01-01",
+  fixedFeeCents: cents(0),
+  effectiveFrom: isoDate("2026-01-01"),
   effectiveTo: null
 } as const;
 
@@ -109,11 +118,11 @@ export const WORKERS_AI_PRICE = {
   priceVersionId: "price-workers-ai-2026-01",
   serviceName: SERVICE_WORKERS_AI,
   serviceFamily: "Workers AI",
-  includedQuantity: 0,
-  overageRateCents: 5000, // $50.00
+  includedQuantity: quantity(0),
+  overageRateCents: cents(5000), // $50.00
   unitDivisor: 1_000_000, // per million billable units
   unit: "units",
-  fixedFeeCents: 0,
-  effectiveFrom: "2026-01-01",
+  fixedFeeCents: cents(0),
+  effectiveFrom: isoDate("2026-01-01"),
   effectiveTo: null
 } as const;

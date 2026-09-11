@@ -1,4 +1,5 @@
 import { periodEnd, periodStart } from "../domain/period.js";
+import type { BillingPeriod } from "../domain/units.js";
 import {
   driverService,
   meteredServiceNames,
@@ -261,7 +262,7 @@ const INPUT_BUILDERS: { [N in ToolName]: InputBuilder<N> } = {
  */
 function periods(
   record: InvestigationRecord
-): { current: string; comparison: string } | null {
+): { current: BillingPeriod; comparison: BillingPeriod } | null {
   return record.currentPeriod && record.comparisonPeriod
     ? { current: record.currentPeriod, comparison: record.comparisonPeriod }
     : null;

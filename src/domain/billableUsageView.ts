@@ -1,3 +1,4 @@
+import { billingPeriod, cents, quantity } from "./units.js";
 import { periodEnd, periodOf, periodStart } from "./period.js";
 import type { DailyUsage, PriceVersion, Zone } from "./types.js";
 import { rateUsage } from "./rating.js";
@@ -61,8 +62,8 @@ export function toBillableUsageRecords(
     // applied here.
     const dailyCostCents = rateUsage(row.quantity, {
       ...price,
-      includedQuantity: 0,
-      fixedFeeCents: 0
+      includedQuantity: quantity(0),
+      fixedFeeCents: cents(0)
     }).amountCents;
 
     const key = `${row.serviceName}|${periodOf(row.usageDate)}`;
@@ -96,7 +97,7 @@ export function billingPeriodBounds(period: string): {
   end: string;
 } {
   return {
-    start: `${periodStart(period)}T00:00:00Z`,
-    end: `${periodEnd(period)}T23:59:59Z`
+    start: `${periodStart(billingPeriod(period))}T00:00:00Z`,
+    end: `${periodEnd(billingPeriod(period))}T23:59:59Z`
   };
 }

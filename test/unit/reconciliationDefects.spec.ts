@@ -1,3 +1,4 @@
+import { c, per, q } from "./../support/values.js";
 import { describe, expect, it } from "vitest";
 import { reconcileInvoice } from "../../src/domain/reconciliation.js";
 import type { ReconciliationReport } from "../../src/domain/reconciliation.js";
@@ -15,7 +16,7 @@ import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
  */
 
 const dataset = generateSyntheticData();
-const PERIOD = "2026-08";
+const PERIOD = per("2026-08");
 const invoice = dataset.invoices.find((i) => i.period === PERIOD)!;
 const lines = dataset.invoiceLines.filter(
   (l) => l.invoiceId === invoice.invoiceId
@@ -129,7 +130,7 @@ describe("a corrupted stored field fails its own boundary", () => {
   it("catches a tampered consumed quantity", () => {
     const report = run({
       ratedCharges: workersCharge((r) => ({
-        consumedQuantity: r.consumedQuantity - 1_000_000
+        consumedQuantity: q(r.consumedQuantity - 1_000_000)
       }))
     });
     expect(report.status).toBe("failed");
@@ -163,7 +164,7 @@ describe("a corrupted stored field fails its own boundary", () => {
     const report = run({
       invoiceLines: lines.map((l) =>
         l.serviceName === "Workers" && l.lineType === "usage"
-          ? { ...l, amountCents: l.amountCents + 100 }
+          ? { ...l, amountCents: c(l.amountCents + 100) }
           : l
       )
     });
@@ -173,14 +174,14 @@ describe("a corrupted stored field fails its own boundary", () => {
 
   it("catches a tampered invoice subtotal", () => {
     // The old implementation never read subtotalCents at all.
-    const report = run({ invoice: { ...invoice, subtotalCents: 1 } });
+    const report = run({ invoice: { ...invoice, subtotalCents: c(1) } });
     expect(report.status).toBe("failed");
     expect(failedBoundaries(report)).toContain("invoice_lines_vs_subtotal");
   });
 
   it("catches a tampered invoice total", () => {
     const report = run({
-      invoice: { ...invoice, totalCents: invoice.totalCents + 1 }
+      invoice: { ...invoice, totalCents: c(invoice.totalCents + 1) }
     });
     expect(report.status).toBe("failed");
     expect(failedBoundaries(report)).toContain("invoice_components_vs_total");
@@ -188,7 +189,7 @@ describe("a corrupted stored field fails its own boundary", () => {
 
   it("uses no tolerance: one cent fails", () => {
     expect(
-      run({ invoice: { ...invoice, totalCents: invoice.totalCents - 1 } }).status
+      run({ invoice: { ...invoice, totalCents: c(invoice.totalCents - 1) } }).status
     ).toBe("failed");
   });
 });
@@ -223,11 +224,11 @@ describe("broken linkage and stray records fail", () => {
           accountId: "abc123",
           serviceName: "Ghost",
           period: PERIOD,
-          consumedQuantity: 999,
-          includedQuantity: 0,
-          billableQuantity: 999,
+          consumedQuantity: q(999),
+          includedQuantity: q(0),
+          billableQuantity: q(999),
           priceVersionId: "price-workers-2026-01",
-          amountCents: 500_000
+          amountCents: c(500_000)
         }
       ]
     });
@@ -247,8 +248,8 @@ describe("broken linkage and stray records fail", () => {
           accountId: "abc123",
           serviceName: "Phantom",
           lineType: "usage" as const,
-          quantity: 1,
-          amountCents: 100_000,
+          quantity: q(1),
+          amountCents: c(100_000),
           ratedChargeId: null,
           subscriptionId: null
         }

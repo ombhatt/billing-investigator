@@ -1,3 +1,4 @@
+import { per } from "./../support/values.js";
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
@@ -64,8 +65,8 @@ describe("golden investigation through the agent", () => {
     const record = await runGolden();
     const domain = goldenFacts({
       dataset,
-      currentPeriod: "2026-08",
-      comparisonPeriod: "2026-07",
+      currentPeriod: per("2026-08"),
+      comparisonPeriod: per("2026-07"),
       focusService: "Workers"
     });
     expect(record.facts).toEqual(domain);

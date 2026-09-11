@@ -1,3 +1,4 @@
+import { per } from "./../support/values.js";
 import { describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
 import { emitSql } from "../../seed/emitSql.js";
@@ -27,33 +28,33 @@ describe("seed reproducibility", () => {
 
 describe("monthly totals are exact", () => {
   it("hits the July and August Workers targets to the request", () => {
-    expect(consumedInPeriod(dataset.dailyUsage, "Workers", "2026-07")).toBe(
+    expect(consumedInPeriod(dataset.dailyUsage, "Workers", per("2026-07"))).toBe(
       1_000_000_000
     );
-    expect(consumedInPeriod(dataset.dailyUsage, "Workers", "2026-08")).toBe(
+    expect(consumedInPeriod(dataset.dailyUsage, "Workers", per("2026-08"))).toBe(
       1_580_000_000
     );
   });
 
   it("hits the Workers AI targets", () => {
-    expect(consumedInPeriod(dataset.dailyUsage, "Workers AI", "2026-07")).toBe(
+    expect(consumedInPeriod(dataset.dailyUsage, "Workers AI", per("2026-07"))).toBe(
       3_000_000
     );
-    expect(consumedInPeriod(dataset.dailyUsage, "Workers AI", "2026-08")).toBe(
+    expect(consumedInPeriod(dataset.dailyUsage, "Workers AI", per("2026-08"))).toBe(
       6_600_000
     );
   });
 
   it("seeds June for historical context", () => {
-    expect(consumedInPeriod(dataset.dailyUsage, "Workers", "2026-06")).toBe(
+    expect(consumedInPeriod(dataset.dailyUsage, "Workers", per("2026-06"))).toBe(
       980_000_000
     );
   });
 
   it("produces the golden invoice totals", () => {
     const byPeriod = new Map(dataset.invoices.map((i) => [i.period, i.totalCents]));
-    expect(byPeriod.get("2026-07")).toBe(1_690_000);
-    expect(byPeriod.get("2026-08")).toBe(2_172_000);
+    expect(byPeriod.get(per("2026-07"))).toBe(1_690_000);
+    expect(byPeriod.get(per("2026-08"))).toBe(2_172_000);
   });
 
   it("matches the PRD line-item table", () => {

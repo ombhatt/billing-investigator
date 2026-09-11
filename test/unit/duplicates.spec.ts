@@ -1,3 +1,4 @@
+import { q } from "../support/values.js";
 import { describe, expect, it } from "vitest";
 import {
   checkDuplicates,
@@ -89,7 +90,7 @@ describe("duplicate detection when duplicates exist", () => {
     const different: UsageEvent = {
       ...base,
       eventId: `${base.eventId}-other`,
-      quantity: base.quantity + 1
+      quantity: q(base.quantity + 1)
     };
     const report = checkDuplicates([...augustWorkers, different], price);
     expect(report.probableCount).toBe(0);

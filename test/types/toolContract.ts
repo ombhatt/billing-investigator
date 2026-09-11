@@ -1,3 +1,4 @@
+import { day, per } from "./../support/values.js";
 import type { ToolInput, ToolName, ToolOutput } from "../../src/tools/catalog.js";
 
 /**
@@ -18,15 +19,15 @@ import type { ToolInput, ToolName, ToolOutput } from "../../src/tools/catalog.js
 export const validInput: ToolInput<"get_price_versions"> = {
   accountId: "abc123",
   serviceName: "Workers",
-  startDate: "2026-07-01",
-  endDate: "2026-08-31"
+  startDate: day("2026-07-01"),
+  endDate: day("2026-08-31")
 };
 
 export const optionalArgOmitted: ToolInput<"get_usage_timeseries"> = {
   accountId: "abc123",
   serviceName: "Workers",
-  startDate: "2026-08-01",
-  endDate: "2026-08-31"
+  startDate: day("2026-08-01"),
+  endDate: day("2026-08-31")
   // zoneId and the comparison window are genuinely optional
 };
 
@@ -38,7 +39,7 @@ export const missingRequired: ToolInput<"get_price_versions"> = {
 
 export const unknownArgument: ToolInput<"reconcile_invoice"> = {
   accountId: "abc123",
-  period: "2026-08",
+  period: per("2026-08"),
   // @ts-expect-error a tool may not be handed an argument it does not accept
   sneakyExtraArgument: true
 };

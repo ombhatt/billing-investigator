@@ -1,6 +1,7 @@
 import type { ModelClient } from "./modelClient.js";
 import { safeNarrative } from "./narrativeGuard.js";
 import { periodsMentioned } from "../domain/period.js";
+import type { BillingPeriod } from "../domain/units.js";
 import { renderSummary } from "./summary.js";
 import type { FinalSummary, InvestigationRecord } from "./types.js";
 
@@ -36,7 +37,7 @@ export async function answerFollowUp(
   }
 
   const investigated = [record.currentPeriod, record.comparisonPeriod].filter(
-    (p): p is string => p !== null
+    (p): p is BillingPeriod => p !== null
   );
 
   // A question about a month this investigation never looked at cannot be
@@ -71,7 +72,7 @@ export async function answerFollowUp(
       invoiceAppearsCorrect: record.summary.invoiceAppearsCorrect,
       confidence: record.facts.confidence,
       periods: [record.currentPeriod, record.comparisonPeriod].filter(
-        (p): p is string => p !== null
+        (p): p is BillingPeriod => p !== null
       )
     });
     if (narrative.usedModel) {
@@ -100,7 +101,7 @@ export async function answerFollowUp(
  */
 function periodsOutsideInvestigation(
   question: string,
-  investigated: string[]
+  investigated: BillingPeriod[]
 ): string[] {
   if (investigated.length === 0) return [];
 
@@ -110,7 +111,8 @@ function periodsOutsideInvestigation(
     for (const period of periodsMentioned(question, year)) asked.add(period);
   }
 
-  return [...asked].filter((p) => !investigated.includes(p)).sort();
+  const seen: readonly string[] = investigated;
+  return [...asked].filter((p) => !seen.includes(p)).sort();
 }
 
 /**

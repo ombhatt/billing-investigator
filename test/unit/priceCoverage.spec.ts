@@ -1,3 +1,4 @@
+import { day, per } from "./../support/values.js";
 import { describe, expect, it } from "vitest";
 import {
   coverageGap,
@@ -21,8 +22,8 @@ import type { PriceVersion } from "../../src/domain/types.js";
  * generation repeated the same overlap-only selection independently.
  */
 
-const AUGUST_START = "2026-08-01";
-const AUGUST_END = "2026-08-31";
+const AUGUST_START = day("2026-08-01");
+const AUGUST_END = day("2026-08-31");
 
 const version = (
   effectiveFrom: string,
@@ -30,8 +31,8 @@ const version = (
 ): PriceVersion => ({
   ...WORKERS_PRICE,
   accountId: "abc123",
-  effectiveFrom,
-  effectiveTo
+  effectiveFrom: day(effectiveFrom),
+  effectiveTo: effectiveTo === null ? null : day(effectiveTo)
 });
 
 describe("covers distinguishes coverage from overlap", () => {
@@ -139,7 +140,7 @@ describe("invoice generation applies the same rule", () => {
   it("rates the golden month normally", () => {
     const charges = generateRatedCharges(
       "abc123",
-      "2026-08",
+      per("2026-08"),
       augustDaily,
       dataset.priceVersions
     );
@@ -152,10 +153,10 @@ describe("invoice generation applies the same rule", () => {
     // Previously this repeated the overlap-only filter in its own code, so the
     // defect existed in two places independently.
     const late = dataset.priceVersions.map((p) =>
-      p.serviceName === "Workers" ? { ...p, effectiveFrom: "2026-08-14" } : p
+      p.serviceName === "Workers" ? { ...p, effectiveFrom: day("2026-08-14") } : p
     );
     expect(() =>
-      generateRatedCharges("abc123", "2026-08", augustDaily, late)
+      generateRatedCharges("abc123", per("2026-08"), augustDaily, late)
     ).toThrow(/does not span/);
   });
 });
@@ -167,12 +168,12 @@ describe("reconciliation fails rather than rating an uncovered period", () => {
   it("fails the price-version boundary when coverage is partial", () => {
     const report = reconcileInvoice({
       accountId: "abc123",
-      period: "2026-08",
+      period: per("2026-08"),
       usageEvents: dataset.usageEvents,
       dailyUsage: dataset.dailyUsage,
       ratedCharges: dataset.ratedCharges,
       prices: dataset.priceVersions.map((p) =>
-        p.serviceName === "Workers" ? { ...p, effectiveFrom: "2026-08-14" } : p
+        p.serviceName === "Workers" ? { ...p, effectiveFrom: day("2026-08-14") } : p
       ),
       invoice,
       invoiceLines: dataset.invoiceLines.filter(

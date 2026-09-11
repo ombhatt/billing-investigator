@@ -1,3 +1,4 @@
+import { per } from "../support/values.js";
 import { describe, expect, it } from "vitest";
 import {
   clarificationContext,
@@ -38,14 +39,14 @@ describe("reading periods out of a request", () => {
       "June 2026 and July 2026",
       "compare June and July please"
     ]) {
-      expect(periodsNamed(text, AVAILABLE), text).toEqual(["2026-06", "2026-07"]);
+      expect(periodsNamed(text, AVAILABLE.map((p) => per(p))), text).toEqual([per("2026-06"), per("2026-07")]);
     }
   });
 
   it("only infers a year the account actually has invoices in", () => {
     // "August" with no year cannot become 2025-08 when the account's invoices
     // are all 2026.
-    expect(periodsNamed("August versus July", AVAILABLE)).toEqual([
+    expect(periodsNamed("August versus July", AVAILABLE.map((p) => per(p)))).toEqual([
       "2026-07",
       "2026-08"
     ]);
@@ -53,7 +54,7 @@ describe("reading periods out of a request", () => {
   });
 
   it("finds nothing in a request that names no month", () => {
-    expect(periodsNamed("why is my bill higher?", AVAILABLE)).toEqual([]);
+    expect(periodsNamed("why is my bill higher?", AVAILABLE.map((p) => per(p)))).toEqual([]);
   });
 });
 
@@ -61,7 +62,7 @@ describe("choosing which two periods to compare", () => {
   it("uses the pair the reader named, over the model's own answer", () => {
     // The defect found by hand: told "2026-06 and 2026-07", the live model
     // answered 2026-07 and 2026-08 — both available, so nothing objected.
-    const choice = resolvePeriods(classified(), AVAILABLE, ["2026-06", "2026-07"]);
+    const choice = resolvePeriods(classified(), AVAILABLE, [per("2026-06"), per("2026-07")]);
 
     expect(choice).toEqual({
       currentPeriod: "2026-07",
@@ -70,7 +71,7 @@ describe("choosing which two periods to compare", () => {
   });
 
   it("reads the later of the named pair as the current period", () => {
-    const choice = resolvePeriods(null, AVAILABLE, ["2026-06", "2026-08"]);
+    const choice = resolvePeriods(null, AVAILABLE, [per("2026-06"), per("2026-08")]);
     expect(choice).toEqual({
       currentPeriod: "2026-08",
       comparisonPeriod: "2026-06"
@@ -78,7 +79,7 @@ describe("choosing which two periods to compare", () => {
   });
 
   it("asks rather than picking when more than two are named", () => {
-    const choice = resolvePeriods(classified(), AVAILABLE, AVAILABLE);
+    const choice = resolvePeriods(classified(), AVAILABLE, AVAILABLE.map((p) => per(p)));
     expect(choice).toHaveProperty("clarify");
     expect((choice as { clarify: string }).clarify).toContain("Which two");
   });

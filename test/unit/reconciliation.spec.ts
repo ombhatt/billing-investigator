@@ -1,3 +1,5 @@
+import { c, per, q } from "../support/values.js";
+import type { Period } from "../../src/domain/types.js";
 import { describe, expect, it } from "vitest";
 import { reconcileInvoice } from "../../src/domain/reconciliation.js";
 import { evaluateConfidence } from "../../src/domain/confidence.js";
@@ -5,7 +7,7 @@ import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
 
 const dataset = generateSyntheticData();
 
-function reconcile(period: string, overrides: Partial<Parameters<typeof reconcileInvoice>[0]> = {}) {
+function reconcile(period: Period, overrides: Partial<Parameters<typeof reconcileInvoice>[0]> = {}) {
   const invoice = dataset.invoices.find((i) => i.period === period)!;
   return reconcileInvoice({
     accountId: dataset.account.accountId,
@@ -24,7 +26,7 @@ function reconcile(period: string, overrides: Partial<Parameters<typeof reconcil
 }
 
 describe("reconciliation on the golden scenario", () => {
-  const report = reconcile("2026-08");
+  const report = reconcile(per("2026-08"));
 
   it("passes overall", () => {
     expect(report.status).toBe("passed");
@@ -69,8 +71,8 @@ describe("reconciliation on the golden scenario", () => {
   });
 
   it("reconciles July as well", () => {
-    expect(reconcile("2026-07").status).toBe("passed");
-    expect(reconcile("2026-06").status).toBe("passed");
+    expect(reconcile(per("2026-07")).status).toBe("passed");
+    expect(reconcile(per("2026-06")).status).toBe("passed");
   });
 });
 
@@ -79,7 +81,7 @@ describe("reconciliation catches injected defects", () => {
     const trimmed = dataset.usageEvents.filter(
       (e) => e.eventId !== "ue-workers-2026-08-20-zone-api-acme-13"
     );
-    const report = reconcile("2026-08", { usageEvents: trimmed });
+    const report = reconcile(per("2026-08"), { usageEvents: trimmed });
     expect(report.status).toBe("failed");
     expect(report.totalQuantityDiscrepancy).toBeGreaterThan(0);
     expect(
@@ -92,10 +94,10 @@ describe("reconciliation catches injected defects", () => {
   it("fails when a rated charge disagrees with its own price version", () => {
     const tampered = dataset.ratedCharges.map((r) =>
       r.period === "2026-08" && r.serviceName === "Workers"
-        ? { ...r, consumedQuantity: r.consumedQuantity - 1_000_000 }
+        ? { ...r, consumedQuantity: q(r.consumedQuantity - 1_000_000) }
         : r
     );
-    const report = reconcile("2026-08", { ratedCharges: tampered });
+    const report = reconcile(per("2026-08"), { ratedCharges: tampered });
     expect(report.status).toBe("failed");
     expect(
       report.checkpoints.find(
@@ -110,10 +112,10 @@ describe("reconciliation catches injected defects", () => {
       .filter((l) => l.invoiceId === invoice.invoiceId)
       .map((l) =>
         l.serviceName === "Workers" && l.lineType === "usage"
-          ? { ...l, amountCents: l.amountCents + 100 }
+          ? { ...l, amountCents: c(l.amountCents + 100) }
           : l
       );
-    const report = reconcile("2026-08", { invoiceLines: lines });
+    const report = reconcile(per("2026-08"), { invoiceLines: lines });
     expect(report.status).toBe("failed");
     expect(
       report.checkpoints.find(
@@ -124,8 +126,8 @@ describe("reconciliation catches injected defects", () => {
 
   it("fails when the invoice total does not equal its components", () => {
     const invoice = dataset.invoices.find((i) => i.period === "2026-08")!;
-    const report = reconcile("2026-08", {
-      invoice: { ...invoice, totalCents: invoice.totalCents + 1 }
+    const report = reconcile(per("2026-08"), {
+      invoice: { ...invoice, totalCents: c(invoice.totalCents + 1) }
     });
     expect(report.status).toBe("failed");
     expect(
@@ -138,8 +140,8 @@ describe("reconciliation catches injected defects", () => {
   it("uses no tolerance: a one-cent gap fails", () => {
     const invoice = dataset.invoices.find((i) => i.period === "2026-08")!;
     expect(
-      reconcile("2026-08", {
-        invoice: { ...invoice, totalCents: invoice.totalCents - 1 }
+      reconcile(per("2026-08"), {
+        invoice: { ...invoice, totalCents: c(invoice.totalCents - 1) }
       }).status
     ).toBe("failed");
   });

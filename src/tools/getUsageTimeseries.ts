@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { rateUsage } from "../domain/rating.js";
 import { zoneGrowth, type ZoneGrowth } from "../domain/zoneGrowth.js";
+import { cents, quantity, sumQuantities } from "../domain/units.js";
 import { listPriceVersionsOverlapping } from "../repositories/pricingRepository.js";
 import { listDailyUsage } from "../repositories/usageRepository.js";
 import { createTool, NotFound } from "./createTool.js";
@@ -120,7 +121,10 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
     const points = [...byDate.entries()]
       .map(([date, quantity]) => ({ date, quantity }))
       .sort((a, b) => a.date.localeCompare(b.date));
-    const totalQuantity = points.reduce((sum, p) => sum + p.quantity, 0);
+    const totalQuantity = sumQuantities(
+      rows.map((r) => r.quantity),
+      `${serviceName} usage total`
+    );
 
     const prices = await listPriceVersionsOverlapping(
       deps.db,
@@ -135,8 +139,8 @@ export const getUsageTimeseries = createTool<typeof inputSchema, UsageTimeseries
       prices.length === 1
         ? rateUsage(totalQuantity, {
             ...prices[0],
-            includedQuantity: 0,
-            fixedFeeCents: 0
+            includedQuantity: quantity(0),
+            fixedFeeCents: cents(0)
           }).amountCents
         : null;
 

@@ -1,3 +1,4 @@
+import { c, day, per, q } from "./../support/values.js";
 import { describe, expect, it } from "vitest";
 import { compareInvoices } from "../../src/domain/compare.js";
 import {
@@ -30,58 +31,58 @@ function repricingScenario(augustQuantity = 1_000_000_000) {
     accountId: "abc123",
     serviceName: "Workers",
     serviceFamily: "Workers",
-    includedQuantity: 100_000_000,
+    includedQuantity: q(100_000_000),
     unitDivisor: 1_000_000,
     unit: "requests",
-    fixedFeeCents: 0
+    fixedFeeCents: c(0)
   };
   const prices = [
     {
       ...base,
       priceVersionId: "pv-old",
-      overageRateCents: 800,
-      effectiveFrom: "2026-01-01",
-      effectiveTo: "2026-07-31"
+      overageRateCents: c(800),
+      effectiveFrom: day("2026-01-01"),
+      effectiveTo: day("2026-07-31")
     },
     {
       ...base,
       priceVersionId: "pv-new",
-      overageRateCents: 900,
-      effectiveFrom: "2026-08-01",
+      overageRateCents: c(900),
+      effectiveFrom: day("2026-08-01"),
       effectiveTo: null
     }
   ];
 
   const daily = [
-    { period: "2026-07", date: "2026-07-15", quantity: 1_000_000_000 },
-    { period: "2026-08", date: "2026-08-15", quantity: augustQuantity }
+    { period: per("2026-07"), date: "2026-07-15", quantity: 1_000_000_000 },
+    { period: per("2026-08"), date: "2026-08-15", quantity: augustQuantity }
   ].map((d) => ({
     accountId: "abc123",
     serviceName: "Workers",
     zoneId: "zone-api-acme",
-    usageDate: d.date,
-    quantity: d.quantity,
+    usageDate: day(d.date),
+    quantity: q(d.quantity),
     unit: "requests",
     sourceEventCount: 1,
     sourceEventFirst: `${d.date}T00:20:00Z`,
     sourceEventLast: `${d.date}T00:20:00Z`
   }));
 
-  const side = (period: string, quantity: number, rate: number) => {
-    const amountCents = ((quantity - 100_000_000) / 1_000_000) * rate;
+  const side = (period: string, units: number, rate: number) => {
+    const amountCents = c(((units - 100_000_000) / 1_000_000) * rate);
     const invoiceId = `inv-${period}`;
     return {
       invoice: {
         invoiceId,
         accountId: "abc123",
-        period,
+        period: per(period),
         status: "finalized",
         currency: "USD",
         subtotalCents: amountCents,
-        creditCents: 0,
-        taxCents: 0,
+        creditCents: c(0),
+        taxCents: c(0),
         totalCents: amountCents,
-        issuedOn: `${period}-28`
+        issuedOn: day(`${period}-28`)
       },
       lines: [
         {
@@ -90,7 +91,7 @@ function repricingScenario(augustQuantity = 1_000_000_000) {
           accountId: "abc123",
           serviceName: "Workers",
           lineType: "usage" as const,
-          quantity,
+          quantity: q(units),
           amountCents,
           ratedChargeId: `rc-${period}`,
           subscriptionId: null
@@ -100,8 +101,8 @@ function repricingScenario(augustQuantity = 1_000_000_000) {
   };
 
   return {
-    currentPeriod: "2026-08",
-    comparisonPeriod: "2026-07",
+    currentPeriod: per("2026-08"),
+    comparisonPeriod: per("2026-07"),
     daily,
     prices,
     current: side("2026-08", augustQuantity, 900),
@@ -152,7 +153,7 @@ describe("invoice comparison", () => {
 
   it("returns a null percentage when the comparison total is zero", () => {
     const zeroed = {
-      invoice: { ...comparison.invoice, totalCents: 0 },
+      invoice: { ...comparison.invoice, totalCents: c(0) },
       lines: comparison.lines
     };
     const result = compareInvoices(current, zeroed);
@@ -164,8 +165,8 @@ describe("invoice comparison", () => {
 
 describe("variance decomposition", () => {
   const decomposition = decomposeVariance({
-    currentPeriod: "2026-08",
-    comparisonPeriod: "2026-07",
+    currentPeriod: per("2026-08"),
+    comparisonPeriod: per("2026-07"),
     daily: dataset.dailyUsage,
     prices: dataset.priceVersions,
     current,

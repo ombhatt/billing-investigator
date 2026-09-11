@@ -1,4 +1,14 @@
 import {
+  billingPeriod,
+  cents,
+  isoDate,
+  quantity,
+  sumQuantities,
+  type BillingPeriod,
+  type Cents,
+  type Quantity
+} from "../src/domain/units.js";
+import {
   generateInvoice,
   generateRatedCharges,
   subscriptionFixedLine,
@@ -69,27 +79,27 @@ function timestampFor(date: string, hour: number): string {
  * remainder to the final slot. This is what makes a month hit its total to the
  * unit no matter how the shape changes. PRD §13.6.
  */
-function distribute(target: number, slots: Slot[]): number[] {
+function distribute(target: number, slots: Slot[]): Quantity[] {
   const totalWeight = slots.reduce((sum, s) => sum + s.weight, 0);
   if (totalWeight <= 0) throw new Error("total weight must be positive");
 
-  const quantities: number[] = [];
+  const quantities: Quantity[] = [];
   let allocated = 0;
   for (let i = 0; i < slots.length - 1; i++) {
     // BigInt because target * weight overflows the safe integer range.
     const q = Number(
       (BigInt(target) * BigInt(slots[i].weight)) / BigInt(totalWeight)
     );
-    quantities.push(q);
+    quantities.push(quantity(q, "distributed slot"));
     allocated += q;
   }
   const last = target - allocated;
   if (last <= 0) throw new Error("final slot must stay positive");
-  quantities.push(last);
+  quantities.push(quantity(last, "final slot"));
   return quantities;
 }
 
-function dayWeights(period: string, random: () => number): Map<string, number> {
+function dayWeights(period: BillingPeriod, random: () => number): Map<string, number> {
   const weights = new Map<string, number>();
   for (const date of periodDates(period)) {
     const base = isWeekend(date) ? WEEKEND_WEIGHT : WEEKDAY_WEIGHT;
@@ -98,7 +108,7 @@ function dayWeights(period: string, random: () => number): Map<string, number> {
   return weights;
 }
 
-function workersSlots(period: string, random: () => number): Slot[] {
+function workersSlots(period: BillingPeriod, random: () => number): Slot[] {
   const perDay = dayWeights(period, random);
   const slots: Slot[] = [];
   for (const date of periodDates(period)) {
@@ -121,7 +131,7 @@ function workersSlots(period: string, random: () => number): Slot[] {
   return slots;
 }
 
-function workersAiSlots(period: string, random: () => number): Slot[] {
+function workersAiSlots(period: BillingPeriod, random: () => number): Slot[] {
   const perDay = dayWeights(period, random);
   return periodDates(period).map((date) => {
     const percent = isElevated(date, 12) ? WORKERS_AI_ELEVATION_PERCENT : 100;
@@ -139,7 +149,7 @@ function buildEvents(
   idPrefix: string,
   unit: string,
   slots: Slot[],
-  quantities: number[]
+  quantities: Quantity[]
 ): UsageEvent[] {
   return slots.map((slot, index) => ({
     eventId: `${idPrefix}-${slot.date}-${slot.zoneId}-${String(slot.hour).padStart(2, "0")}`,
@@ -175,8 +185,8 @@ function aggregateDaily(events: UsageEvent[]): DailyUsage[] {
       accountId: ACCOUNT.accountId,
       serviceName,
       zoneId,
-      usageDate,
-      quantity: ordered.reduce((total, e) => total + e.quantity, 0),
+      usageDate: isoDate(usageDate),
+      quantity: sumQuantities(ordered.map((e) => e.quantity), "daily usage"),
       unit: ordered[0].unit,
       sourceEventCount: ordered.length,
       sourceEventFirst: ordered[0].occurredAt,
@@ -210,7 +220,7 @@ export function generateSyntheticData(seed: number = SEED): BillingDataset {
       accountId: ACCOUNT.accountId,
       planName: ACCOUNT.planType,
       monthlyFeeCents: PLATFORM_FEE_CENTS,
-      startedOn: "2026-01-01",
+      startedOn: isoDate("2026-01-01"),
       endedOn: null
     }
   ];

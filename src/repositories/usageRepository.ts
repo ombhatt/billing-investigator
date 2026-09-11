@@ -1,3 +1,4 @@
+import { isoDate, quantity } from "../domain/units.js";
 import type { DailyUsage, UsageEvent } from "../domain/types.js";
 
 interface DailyUsageRow {
@@ -28,8 +29,8 @@ function toDaily(row: DailyUsageRow): DailyUsage {
     accountId: row.account_id,
     serviceName: row.service_name,
     zoneId: row.zone_id,
-    usageDate: row.usage_date,
-    quantity: row.quantity,
+    usageDate: isoDate(row.usage_date, "daily usage date"),
+    quantity: quantity(row.quantity, "daily usage quantity"),
     unit: row.unit,
     sourceEventCount: row.source_event_count,
     sourceEventFirst: row.source_event_first,
@@ -45,7 +46,7 @@ function toEvent(row: UsageEventRow): UsageEvent {
     zoneId: row.zone_id,
     sourceEventKey: row.source_event_key,
     occurredAt: row.occurred_at,
-    quantity: row.quantity,
+    quantity: quantity(row.quantity, `event ${row.event_id} quantity`),
     unit: row.unit
   };
 }

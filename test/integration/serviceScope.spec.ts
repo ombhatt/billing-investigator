@@ -1,3 +1,4 @@
+import { c, q } from "./../support/values.js";
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
@@ -114,7 +115,7 @@ describe("a Workers AI duplicate is not reported as no duplicates", () => {
       .bind(source.quantity, day)
       .run();
 
-    const consumed = 6_600_000 + source.quantity;
+    const consumed = q(6_600_000 + source.quantity);
     const amount = rateUsage(consumed, price).amountCents;
     const delta = amount - 33_000;
 
@@ -199,7 +200,7 @@ describe("a Workers AI reprice is not reported as unchanged pricing", () => {
     const old = dataset.priceVersions.find(
       (p) => p.serviceName === "Workers AI"
     )!;
-    const newRate = 15_000; // $150 per million, up from $50
+    const newRate = c(15_000); // $150 per million, up from $50
 
     await env.DB.prepare(
       "UPDATE price_versions SET effective_to = '2026-07-31' WHERE price_version_id = ?"
@@ -216,7 +217,7 @@ describe("a Workers AI reprice is not reported as unchanged pricing", () => {
       .bind(newRate)
       .run();
 
-    const amount = rateUsage(6_600_000, {
+    const amount = rateUsage(q(6_600_000), {
       ...old,
       overageRateCents: newRate
     }).amountCents;

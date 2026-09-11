@@ -1,4 +1,5 @@
 import { periodsMentioned } from "../domain/period.js";
+import { billingPeriod, type BillingPeriod } from "../domain/units.js";
 import { isFailure } from "../types/tools.js";
 import type { CaseClassification, ModelClient } from "./modelClient.js";
 import { transition } from "./stateMachine.js";
@@ -31,9 +32,9 @@ function listPeriods(periods: string[]): string {
  * years the account has invoices in are tried, so an omitted year can never
  * invent a period out of range.
  */
-export function periodsNamed(text: string, available: string[]): string[] {
+export function periodsNamed(text: string, available: string[]): BillingPeriod[] {
   const years = [...new Set(available.map((p) => Number(p.slice(0, 4))))];
-  const found = new Set<string>(periodsMentioned(text));
+  const found = new Set<BillingPeriod>(periodsMentioned(text));
   for (const year of years) {
     for (const period of periodsMentioned(text, year)) found.add(period);
   }
@@ -53,7 +54,7 @@ export function clarificationContext(
 }
 
 export type PeriodChoice =
-  | { currentPeriod: string; comparisonPeriod: string }
+  | { currentPeriod: BillingPeriod; comparisonPeriod: BillingPeriod }
   | { clarify: string };
 
 /**
@@ -75,7 +76,7 @@ export type PeriodChoice =
 export function resolvePeriods(
   classification: CaseClassification | null,
   periods: string[],
-  requested: string[]
+  requested: BillingPeriod[]
 ): PeriodChoice {
   const sorted = [...periods].sort();
 
@@ -100,7 +101,10 @@ export function resolvePeriods(
   }
 
   if (!classification) {
-    return { currentPeriod: sorted.at(-1)!, comparisonPeriod: sorted.at(-2)! };
+    return {
+      currentPeriod: billingPeriod(sorted.at(-1)!),
+      comparisonPeriod: billingPeriod(sorted.at(-2)!)
+    };
   }
 
   if (classification.needsClarification) {
@@ -127,9 +131,14 @@ export function resolvePeriods(
     };
   }
 
+  // The model supplies these as plain strings. They are validated here, at the
+  // one place untrusted input becomes a domain value.
   return {
-    currentPeriod: classification.currentPeriod,
-    comparisonPeriod: classification.comparisonPeriod
+    currentPeriod: billingPeriod(classification.currentPeriod, "requested period"),
+    comparisonPeriod: billingPeriod(
+      classification.comparisonPeriod,
+      "comparison period"
+    )
   };
 }
 

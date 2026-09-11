@@ -1,3 +1,4 @@
+import { c, day, per } from "../support/values.js";
 import { describe, expect, it } from "vitest";
 import { reconcileInvoice } from "../../src/domain/reconciliation.js";
 import type { ReconciliationReport } from "../../src/domain/reconciliation.js";
@@ -13,7 +14,7 @@ import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
  */
 
 const dataset = generateSyntheticData();
-const PERIOD = "2026-08";
+const PERIOD = per("2026-08");
 const invoice = dataset.invoices.find((i) => i.period === PERIOD)!;
 const lines = dataset.invoiceLines.filter(
   (l) => l.invoiceId === invoice.invoiceId
@@ -44,13 +45,13 @@ function inflatePlatformFee(byCents: number): Partial<Input> {
   return {
     invoiceLines: lines.map((l) =>
       l.serviceName === "Platform fee"
-        ? { ...l, amountCents: l.amountCents + byCents }
+        ? { ...l, amountCents: c(l.amountCents + byCents) }
         : l
     ),
     invoice: {
       ...invoice,
-      subtotalCents: invoice.subtotalCents + byCents,
-      totalCents: invoice.totalCents + byCents
+      subtotalCents: c(invoice.subtotalCents + byCents),
+      totalCents: c(invoice.totalCents + byCents)
     }
   };
 }
@@ -103,7 +104,7 @@ describe("the platform fee is checked against its subscription", () => {
     const report = run({
       subscriptions: dataset.subscriptions.map((s) => ({
         ...s,
-        endedOn: "2026-07-31"
+        endedOn: day("2026-07-31")
       }))
     });
     expect(report.status).toBe("failed");
@@ -114,7 +115,7 @@ describe("the platform fee is checked against its subscription", () => {
     const report = run({
       subscriptions: dataset.subscriptions.map((s) => ({
         ...s,
-        startedOn: "2026-09-01"
+        startedOn: day("2026-09-01")
       }))
     });
     expect(report.status).toBe("failed");
@@ -126,7 +127,7 @@ describe("the platform fee is checked against its subscription", () => {
     const report = run({
       subscriptions: dataset.subscriptions.map((s) => ({
         ...s,
-        endedOn: "2026-08-20"
+        endedOn: day("2026-08-20")
       }))
     });
     expect(report.status).toBe("passed");

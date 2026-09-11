@@ -1,16 +1,13 @@
+import { billingPeriod, isoDate } from "./units.js";
 import type { IsoDate, Period } from "./types.js";
 
-const PERIOD_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
-
+/** Kept for its name; the validation now lives with the type it produces. */
 export function assertPeriod(period: string): Period {
-  if (!PERIOD_PATTERN.test(period)) {
-    throw new RangeError(`invalid period, expected YYYY-MM: ${period}`);
-  }
-  return period;
+  return billingPeriod(period);
 }
 
 export function periodStart(period: Period): IsoDate {
-  return `${assertPeriod(period)}-01`;
+  return isoDate(`${assertPeriod(period)}-01`);
 }
 
 export function daysInPeriod(period: Period): number {
@@ -20,7 +17,7 @@ export function daysInPeriod(period: Period): number {
 }
 
 export function periodEnd(period: Period): IsoDate {
-  return `${period}-${String(daysInPeriod(period)).padStart(2, "0")}`;
+  return isoDate(`${period}-${String(daysInPeriod(period)).padStart(2, "0")}`);
 }
 
 /** Every date in the period, ascending. */
@@ -28,13 +25,13 @@ export function periodDates(period: Period): IsoDate[] {
   const count = daysInPeriod(period);
   const dates: IsoDate[] = [];
   for (let day = 1; day <= count; day++) {
-    dates.push(`${period}-${String(day).padStart(2, "0")}`);
+    dates.push(isoDate(`${period}-${String(day).padStart(2, "0")}`));
   }
   return dates;
 }
 
 export function periodOf(date: IsoDate): Period {
-  return date.slice(0, 7);
+  return billingPeriod(date.slice(0, 7));
 }
 
 /** 0 = Sunday. Computed in UTC so it never depends on the host timezone. */
@@ -94,14 +91,16 @@ export function periodsMentioned(
   assumeYear?: number
 ): Period[] {
   const found = new Set<Period>();
+  // Constructed rather than asserted: a month index out of range would be
+  // caught here rather than travelling as a period-shaped string.
   const asPeriod = (year: string | number, month: number) =>
-    `${year}-${String(month).padStart(2, "0")}`;
+    billingPeriod(`${year}-${String(month).padStart(2, "0")}`);
 
   for (const match of text.matchAll(NAMED_MONTH)) {
     found.add(asPeriod(match[2], MONTH_NAMES.indexOf(match[1].toLowerCase()) + 1));
   }
   for (const match of text.match(BARE_PERIOD) ?? []) {
-    found.add(match);
+    found.add(billingPeriod(match));
   }
   if (assumeYear !== undefined) {
     for (const match of text.matchAll(BARE_MONTH)) {

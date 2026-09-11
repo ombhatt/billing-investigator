@@ -1,3 +1,4 @@
+import { day, per } from "../support/values.js";
 import { env } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
@@ -27,8 +28,8 @@ import type { BillingDataset } from "../../src/domain/types.js";
 const ACCOUNT = "abc123";
 const request = {
   accountId: ACCOUNT,
-  currentPeriod: "2026-08",
-  comparisonPeriod: "2026-07",
+  currentPeriod: per("2026-08"),
+  comparisonPeriod: per("2026-07"),
   focusService: "Workers"
 };
 
@@ -39,11 +40,11 @@ function repriced(dataset: BillingDataset, service: string): BillingDataset {
     priceVersions: dataset.priceVersions.flatMap((p) =>
       p.serviceName === service
         ? [
-            { ...p, effectiveTo: "2026-07-31" },
+            { ...p, effectiveTo: day("2026-07-31") },
             {
               ...p,
               priceVersionId: `${p.priceVersionId}-b`,
-              effectiveFrom: "2026-08-01",
+              effectiveFrom: day("2026-08-01"),
               effectiveTo: null
             }
           ]

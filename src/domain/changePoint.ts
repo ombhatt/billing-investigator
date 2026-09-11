@@ -1,3 +1,8 @@
+import {
+  cents,
+  type Cents,
+  type Quantity
+} from "./units.js";
 import { rateCents } from "./money.js";
 import type { IsoDate, PriceVersion } from "./types.js";
 
@@ -13,7 +18,7 @@ export const CHANGE_POINT_METHOD =
 
 export interface DailyPoint {
   date: IsoDate;
-  quantity: number;
+  quantity: Quantity;
 }
 
 export interface ChangePointResult {
@@ -25,11 +30,17 @@ export interface ChangePointResult {
    * rejection can say what it rejected instead of reporting nothing.
    */
   candidateDate: IsoDate | null;
+  /**
+   * Window medians, not quantities. A median over an even-sized window is the
+   * mean of the two middle values and so can land on a half — it is a statistic
+   * about quantities rather than a count of anything, and branding it would be
+   * a claim the arithmetic does not support.
+   */
   baselineDailyQuantity: number;
   postChangeDailyQuantity: number;
   ratio: number | null;
   material: boolean;
-  projectedCostImpactCents: number;
+  projectedCostImpactCents: Cents;
   confidence: "high" | "medium" | "low";
   method: string;
   preWindow: { from: IsoDate; to: IsoDate } | null;
@@ -59,7 +70,7 @@ function emptyResult(
     postChangeDailyQuantity: 0,
     ratio: null,
     material: false,
-    projectedCostImpactCents: 0,
+    projectedCostImpactCents: cents(0),
     confidence: "low",
     method: CHANGE_POINT_METHOD,
     preWindow: null,
@@ -149,7 +160,7 @@ export function detectChangePoint(
   );
   const projectedCostImpactCents = price
     ? rateCents(projectedExtraQuantity, price.overageRateCents, price.unitDivisor)
-    : 0;
+    : cents(0);
 
   // A scan always yields a best row; that is not the same as having found a
   // change point. On constant usage every candidate ties at ratio 1.00, and

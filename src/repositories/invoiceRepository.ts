@@ -1,3 +1,4 @@
+import { billingPeriod, cents, isoDate, quantity } from "../domain/units.js";
 import type { Invoice, InvoiceLine, InvoiceLineType } from "../domain/types.js";
 
 interface InvoiceRow {
@@ -28,18 +29,24 @@ interface InvoiceLineRow {
 const INVOICE_COLUMNS = `invoice_id, account_id, period, status, currency,
                          subtotal_cents, credit_cents, tax_cents, total_cents, issued_on`;
 
+/**
+ * The validation boundary. Every value that enters the domain from D1 is
+ * checked here, so a fractional cent or a malformed period fails at the row it
+ * came from rather than surfacing as a reconciliation discrepancy twelve steps
+ * later with nothing to point at.
+ */
 function toInvoice(row: InvoiceRow): Invoice {
   return {
     invoiceId: row.invoice_id,
     accountId: row.account_id,
-    period: row.period,
+    period: billingPeriod(row.period, `invoice ${row.invoice_id} period`),
     status: row.status,
     currency: row.currency,
-    subtotalCents: row.subtotal_cents,
-    creditCents: row.credit_cents,
-    taxCents: row.tax_cents,
-    totalCents: row.total_cents,
-    issuedOn: row.issued_on
+    subtotalCents: cents(row.subtotal_cents, `invoice ${row.invoice_id} subtotal`),
+    creditCents: cents(row.credit_cents, `invoice ${row.invoice_id} credit`),
+    taxCents: cents(row.tax_cents, `invoice ${row.invoice_id} tax`),
+    totalCents: cents(row.total_cents, `invoice ${row.invoice_id} total`),
+    issuedOn: isoDate(row.issued_on, `invoice ${row.invoice_id} issue date`)
   };
 }
 
@@ -98,8 +105,11 @@ export async function listInvoiceLines(
     accountId: row.account_id,
     serviceName: row.service_name,
     lineType: row.line_type as InvoiceLineType,
-    quantity: row.quantity,
-    amountCents: row.amount_cents,
+    quantity:
+      row.quantity === null
+        ? null
+        : quantity(row.quantity, `line ${row.line_id} quantity`),
+    amountCents: cents(row.amount_cents, `line ${row.line_id} amount`),
     ratedChargeId: row.rated_charge_id,
     subscriptionId: row.subscription_id
   }));

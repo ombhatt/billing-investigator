@@ -1,3 +1,4 @@
+import { c, day, per, q } from "./../support/values.js";
 import { describe, expect, it } from "vitest";
 import {
   effectivePrice,
@@ -15,7 +16,7 @@ const dataset = generateSyntheticData();
 
 describe("rating", () => {
   it("rates Workers for July at $7,200", () => {
-    const consumed = consumedInPeriod(dataset.dailyUsage, "Workers", "2026-07");
+    const consumed = consumedInPeriod(dataset.dailyUsage, "Workers", per("2026-07"));
     expect(consumed).toBe(1_000_000_000);
 
     const rated = rateUsage(consumed, workersPrice);
@@ -25,7 +26,7 @@ describe("rating", () => {
   });
 
   it("rates Workers for August at $11,840", () => {
-    const consumed = consumedInPeriod(dataset.dailyUsage, "Workers", "2026-08");
+    const consumed = consumedInPeriod(dataset.dailyUsage, "Workers", per("2026-08"));
     expect(consumed).toBe(1_580_000_000);
 
     const rated = rateUsage(consumed, workersPrice);
@@ -36,23 +37,23 @@ describe("rating", () => {
   it("rates Workers AI at $150 for July and $330 for August", () => {
     const price = { ...WORKERS_AI_PRICE, accountId: "abc123" };
     expect(
-      rateUsage(consumedInPeriod(dataset.dailyUsage, "Workers AI", "2026-07"), price)
+      rateUsage(consumedInPeriod(dataset.dailyUsage, "Workers AI", per("2026-07")), price)
         .amountCents
     ).toBe(15_000);
     expect(
-      rateUsage(consumedInPeriod(dataset.dailyUsage, "Workers AI", "2026-08"), price)
+      rateUsage(consumedInPeriod(dataset.dailyUsage, "Workers AI", per("2026-08")), price)
         .amountCents
     ).toBe(33_000);
   });
 
   it("never bills below the included allowance", () => {
-    const rated = rateUsage(50_000_000, workersPrice);
+    const rated = rateUsage(q(50_000_000), workersPrice);
     expect(rated.billableQuantity).toBe(0);
     expect(rated.amountCents).toBe(0);
   });
 
   it("adds a fixed fee to the overage charge", () => {
-    const rated = rateUsage(101_000_000, { ...workersPrice, fixedFeeCents: 5_000 });
+    const rated = rateUsage(q(101_000_000), { ...workersPrice, fixedFeeCents: c(5_000) });
     expect(rated.amountCents).toBe(5_000 + 800);
   });
 });
@@ -60,10 +61,10 @@ describe("rating", () => {
 describe("price versions", () => {
   it("reports no price change across July and August", () => {
     expect(
-      priceChanged(dataset.priceVersions, "Workers", "2026-07-01", "2026-08-31")
+      priceChanged(dataset.priceVersions, "Workers", day("2026-07-01"), day("2026-08-31"))
     ).toBe(false);
     expect(
-      priceChanged(dataset.priceVersions, "Workers AI", "2026-07-01", "2026-08-31")
+      priceChanged(dataset.priceVersions, "Workers AI", day("2026-07-01"), day("2026-08-31"))
     ).toBe(false);
   });
 
@@ -71,8 +72,8 @@ describe("price versions", () => {
     const versions = priceVersionsOverlapping(
       dataset.priceVersions,
       "Workers",
-      "2026-07-01",
-      "2026-08-31"
+      day("2026-07-01"),
+      day("2026-08-31")
     );
     expect(versions).toHaveLength(1);
     expect(versions[0].priceVersionId).toBe("price-workers-2026-01");
@@ -86,20 +87,20 @@ describe("price versions", () => {
       {
         ...workersPrice,
         priceVersionId: "price-workers-2026-08",
-        overageRateCents: 900,
-        effectiveFrom: "2026-08-01",
+        overageRateCents: c(900),
+        effectiveFrom: day("2026-08-01"),
         effectiveTo: null
       }
     ];
-    expect(priceChanged(prices, "Workers", "2026-07-01", "2026-08-31")).toBe(true);
+    expect(priceChanged(prices, "Workers", day("2026-07-01"), day("2026-08-31"))).toBe(true);
     expect(() =>
-      effectivePrice(prices, "Workers", "2026-07-01", "2026-08-31")
+      effectivePrice(prices, "Workers", day("2026-07-01"), day("2026-08-31"))
     ).toThrow(/price versions/);
   });
 
   it("rejects an unknown service rather than guessing a price", () => {
     expect(() =>
-      effectivePrice(dataset.priceVersions, "Nonexistent", "2026-07-01", "2026-07-31")
+      effectivePrice(dataset.priceVersions, "Nonexistent", day("2026-07-01"), day("2026-07-31"))
     ).toThrow(/no price version/);
   });
 });
@@ -112,14 +113,14 @@ describe("period helpers", () => {
   });
 
   it("counts days without drifting on timezone", () => {
-    expect(daysInPeriod("2026-06")).toBe(30);
-    expect(daysInPeriod("2026-07")).toBe(31);
-    expect(daysInPeriod("2026-02")).toBe(28);
+    expect(daysInPeriod(per("2026-06"))).toBe(30);
+    expect(daysInPeriod(per("2026-07"))).toBe(31);
+    expect(daysInPeriod(per("2026-02"))).toBe(28);
   });
 
   it("identifies weekends in UTC", () => {
-    expect(isWeekend("2026-08-01")).toBe(true); // Saturday
-    expect(isWeekend("2026-08-02")).toBe(true); // Sunday
-    expect(isWeekend("2026-08-14")).toBe(false); // Friday
+    expect(isWeekend(day("2026-08-01"))).toBe(true); // Saturday
+    expect(isWeekend(day("2026-08-02"))).toBe(true); // Sunday
+    expect(isWeekend(day("2026-08-14"))).toBe(false); // Friday
   });
 });

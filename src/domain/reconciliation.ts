@@ -1,3 +1,9 @@
+import {
+  cents,
+  sumQuantities,
+  type Cents,
+  type Quantity
+} from "./units.js";
 import { sumCents } from "./money.js";
 import { periodEnd, periodStart } from "./period.js";
 import { effectivePrice, rateUsage } from "./rating.js";
@@ -58,7 +64,7 @@ export interface ReconciliationReport {
   invoiceId: string;
   checkpoints: ReconciliationCheckpoint[];
   totalQuantityDiscrepancy: number;
-  totalDiscrepancyCents: number;
+  totalDiscrepancyCents: Cents;
   /**
    * Fixed charges with no authorising record, so arithmetic consistency is all
    * that can be verified about them. R2 and D1 are illustrative flat charges in
@@ -95,6 +101,15 @@ function checkpoint(
 
 function sumBy<T>(items: T[], value: (item: T) => number): number {
   return items.reduce((total, item) => total + value(item), 0);
+}
+
+/** The same, for quantities, so an overflowing stage total is caught here. */
+function sumQuantityBy<T>(
+  items: T[],
+  value: (item: T) => Quantity,
+  what: string
+): Quantity {
+  return sumQuantities(items.map(value), what);
 }
 
 /**
@@ -168,7 +183,7 @@ export function reconcileInvoice(input: {
     );
 
     const rawTotal = sumBy(serviceEvents, (e) => e.quantity);
-    const dailyTotal = sumBy(serviceDaily, (d) => d.quantity);
+    const dailyTotal = sumQuantityBy(serviceDaily, (d) => d.quantity, "daily usage");
 
     checkpoints.push(
       checkpoint(
@@ -240,7 +255,7 @@ export function reconcileInvoice(input: {
     // recomputation straight to the invoice line, so a corrupted rated charge
     // was never looked at.
     const recomputed =
-      price !== null ? rateUsage(dailyTotal, price).amountCents : 0;
+      price !== null ? rateUsage(dailyTotal, price).amountCents : cents(0);
     checkpoints.push(
       checkpoint(
         "recomputed_charge_vs_rated_charge",
@@ -353,9 +368,12 @@ export function reconcileInvoice(input: {
     checkpoints.filter((c) => c.kind === "quantity"),
     (c) => Math.abs(c.difference)
   );
-  const totalDiscrepancyCents = sumBy(
-    checkpoints.filter((c) => c.kind === "currency"),
-    (c) => Math.abs(c.difference)
+  const totalDiscrepancyCents = cents(
+    sumBy(
+      checkpoints.filter((c) => c.kind === "currency"),
+      (c) => Math.abs(c.difference)
+    ),
+    "total discrepancy"
   );
 
   return {

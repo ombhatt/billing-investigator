@@ -1,3 +1,4 @@
+import { billingPeriod, isoDate } from "../domain/units.js";
 import { z } from "zod";
 
 /** Opaque short slugs. Anything else is rejected before reaching a repository. */
@@ -16,9 +17,16 @@ export const serviceNameSchema = z
     "serviceName must be 1-64 chars [A-Za-z0-9 ._-]"
   );
 
+/**
+ * Zod checks the shape; the domain constructor checks the invariant and brands
+ * the result. Doing both means a tool argument that reaches the domain has been
+ * validated by the layer that owns each concern, and a tool cannot hand the
+ * domain a period-shaped string it never looked at.
+ */
 export const periodSchema = z
   .string()
-  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period must be YYYY-MM");
+  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "period must be YYYY-MM")
+  .transform((value) => billingPeriod(value));
 
 /** Rejects both malformed strings and impossible dates such as 2026-02-30. */
 export const isoDateSchema = z
@@ -30,7 +38,8 @@ export const isoDateSchema = z
       !Number.isNaN(parsed.getTime()) &&
       parsed.toISOString().slice(0, 10) === value
     );
-  }, "date must be a real calendar date");
+  }, "date must be a real calendar date")
+  .transform((value) => isoDate(value));
 
 export const isoTimestampSchema = z
   .string()

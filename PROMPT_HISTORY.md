@@ -1026,3 +1026,45 @@ executor reproduced the original bug, and that now fails three. The first
 mutation I tried was not testing what I thought it was.
 
 Also renamed a test that said "at most nine tool calls" while asserting eleven.
+
+---
+
+### Review recommendation — represent validated financial values explicitly
+
+`type Period = string`, `amountCents: number`, and a `sumCents` that was a bare
+`reduce` two functions below a `rateCents` validating every input and its result.
+One file disagreeing with itself about whether money needed checking.
+
+`src/domain/units.ts` adds branded `Cents`, `Quantity`, `BillingPeriod` and
+`IsoDate` with checking constructors and checked operations. Branding the domain
+interfaces produced **170 type errors** — one per place a raw number reached a
+money field or unchecked arithmetic produced one. Working through them was the
+exercise: every error was a spot where the invariant had only ever been a name.
+
+Validation happens at the repositories, because D1 declares `INTEGER` columns
+without enforcing them — SQLite stores 12.5 in one without complaint. Model
+periods are validated in `resolvePeriods`; tool arguments in `validators.ts`,
+where Zod checks shape and the constructor checks the invariant.
+
+Two things the branding surfaced that I would not have found by reading:
+
+**A change point's window medians are not quantities.** A median over an
+even-sized window is the mean of the two middle values and can land on a half.
+They stay plain numbers; branding them would claim something the arithmetic does
+not support.
+
+**`src/tools/definitions.ts` was dead.** Imported by nothing since the M1-era AI
+SDK wrappers were abandoned, while CLAUDE.md rule 4 still called it "the single
+source of truth" for the allowlist. Deleted, and the rule now points at
+`catalog.ts`.
+
+481 tests, up from 461. Mutation-checked twice, and the second taught me
+something. Removing the constructors' checks fails two. Removing the *repository*
+validation initially failed **nothing** — `subtractCents` downstream caught the
+fractional value anyway. Two independent defences, and a test that could not tell
+them apart. The boundary test now adds a half cent to *both* invoices so their
+difference is whole and the arithmetic has nothing to object to; only the
+row-level check catches it. That mutation now fails.
+
+Seed hash unchanged (`9a11702d…`), so branding altered no values, and the golden
+facts are untouched.

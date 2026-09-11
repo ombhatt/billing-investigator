@@ -46,12 +46,12 @@ the financial logic provable.
 
 1. **Deterministic money, probabilistic language.** All currency and quantity math runs in
    `src/domain/`. The LLM explains results; it never calculates them.
-2. **Integer cents everywhere.** No floating-point for money. Format to USD only at the
-   presentation boundary.
+2. **Integer cents everywhere**, as branded `Cents` (`src/domain/units.ts`). Construct at the
+   repository boundary; combine only via checked ops. Format to USD only for display.
 3. **Read-only, always.** No writes to billing data. No payments, refunds, credits, or invoice
    corrections at any priority.
-4. **Tool allowlist is server-enforced.** `src/tools/definitions.ts` is the single source of
-   truth. Unknown tool names are rejected. The model never sees D1.
+4. **Tool allowlist is server-enforced.** `src/tools/catalog.ts` is the single source of truth,
+   and carries each tool’s types. Unknown names are rejected. The model never sees D1.
 5. **Account scoping is enforced per call.** A tool may only read the account bound to the
    current investigation.
 6. **Evidence before conclusion.** Every material claim links to a tool result and source
@@ -84,8 +84,8 @@ the financial logic provable.
 
 ## Review invariants — earned from defects, mutation-checked, do not regress
 
-Ten review findings, one shape: a guarantee checked in the present-and-wrong case but not the
-absent one. Reasoning per finding is in `ARCHITECTURE.md` §9–§17.
+Findings and design reviews, one shape: a guarantee checked in the present-and-wrong case but
+not the absent one. Reasoning per item is in `ARCHITECTURE.md` §9–§24.
 
 21. **Absence is not proof, and a candidate is not a finding.** A check whose inputs are gone
     has not run; a scan's best row is not a detection. Covers unchecked duplicates, unperformed

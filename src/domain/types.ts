@@ -3,8 +3,11 @@
  * any Cloudflare binding, so every calculation is testable in plain Node.
  */
 
-export type Period = string; // "2026-08"
-export type IsoDate = string; // "2026-08-14"
+export type { BillingPeriod, Cents, IsoDate, Quantity } from "./units.js";
+import type { BillingPeriod, Cents, IsoDate, Quantity } from "./units.js";
+
+/** Kept as an alias of the branded month for readability at call sites. */
+export type Period = BillingPeriod;
 export type IsoTimestamp = string; // "2026-08-14T10:20:00Z"
 
 export interface Account {
@@ -27,7 +30,7 @@ export interface Subscription {
   subscriptionId: string;
   accountId: string;
   planName: string;
-  monthlyFeeCents: number;
+  monthlyFeeCents: Cents;
   startedOn: IsoDate;
   endedOn: IsoDate | null;
 }
@@ -41,12 +44,12 @@ export interface PriceVersion {
   accountId: string;
   serviceName: string;
   serviceFamily: string;
-  includedQuantity: number;
+  includedQuantity: Quantity;
   /** Cents charged per `unitDivisor` billable units. */
-  overageRateCents: number;
+  overageRateCents: Cents;
   unitDivisor: number;
   unit: string;
-  fixedFeeCents: number;
+  fixedFeeCents: Cents;
   effectiveFrom: IsoDate;
   effectiveTo: IsoDate | null;
 }
@@ -58,7 +61,7 @@ export interface UsageEvent {
   zoneId: string;
   sourceEventKey: string;
   occurredAt: IsoTimestamp;
-  quantity: number;
+  quantity: Quantity;
   unit: string;
 }
 
@@ -67,7 +70,7 @@ export interface DailyUsage {
   serviceName: string;
   zoneId: string;
   usageDate: IsoDate;
-  quantity: number;
+  quantity: Quantity;
   unit: string;
   /** Lineage back to the events this row aggregates. PRD §14. */
   sourceEventCount: number;
@@ -80,11 +83,11 @@ export interface RatedCharge {
   accountId: string;
   serviceName: string;
   period: Period;
-  consumedQuantity: number;
-  includedQuantity: number;
-  billableQuantity: number;
+  consumedQuantity: Quantity;
+  includedQuantity: Quantity;
+  billableQuantity: Quantity;
   priceVersionId: string;
-  amountCents: number;
+  amountCents: Cents;
 }
 
 export type InvoiceLineType = "fixed" | "usage";
@@ -95,8 +98,8 @@ export interface InvoiceLine {
   accountId: string;
   serviceName: string;
   lineType: InvoiceLineType;
-  quantity: number | null;
-  amountCents: number;
+  quantity: Quantity | null;
+  amountCents: Cents;
   ratedChargeId: string | null;
   subscriptionId: string | null;
 }
@@ -107,10 +110,10 @@ export interface Invoice {
   period: Period;
   status: string;
   currency: string;
-  subtotalCents: number;
-  creditCents: number;
-  taxCents: number;
-  totalCents: number;
+  subtotalCents: Cents;
+  creditCents: Cents;
+  taxCents: Cents;
+  totalCents: Cents;
   issuedOn: IsoDate;
 }
 

@@ -994,3 +994,64 @@ what a limit means.
 database, no playbook. `test/unit/periodResolution.spec.ts` tests every period
 rule as pure functions. The end-to-end coordinator tests are unchanged and still
 assert the golden fact block.
+
+## 24. Addendum: validated values
+
+Review found the domain naming invariants it did not enforce. `type Period =
+string` accepted any string; `amountCents: number` accepted 12.5; and `sumCents`
+was a bare `reduce` sitting two functions below a `rateCents` that validated
+every input and its result — one file disagreeing with itself about whether
+money needed checking.
+
+`src/domain/units.ts` defines four branded types with constructors that check:
+
+| Type | Rejects |
+|---|---|
+| `Cents` | fractions, NaN, values outside the exact integer range |
+| `Quantity` | the same, plus negatives — a negative count of requests did not happen |
+| `BillingPeriod` | anything that is not a real `YYYY-MM` |
+| `IsoDate` | malformed dates, and `2026-02-31`, which the pattern alone admits |
+
+Brands rather than classes: numbers and strings at runtime, so they cross D1 and
+JSON unchanged. What they buy is that the only way to *produce* one is a
+constructor that checked it, and the only way to *combine* them is an operation
+that checked the result — arithmetic on a branded number yields a plain number,
+which will not assign back. That is the point, not an inconvenience.
+
+### Where values are validated
+
+The repositories. D1 declares `INTEGER` columns but does not enforce them —
+SQLite stores 12.5 in one without complaint — so every row is checked as it
+enters the domain, naming the record it came from:
+
+```
+invoice inv-abc123-2026-08 total must be a whole number of cents: 2172000.5
+```
+
+Model-supplied periods are validated in `resolvePeriods`; tool arguments in
+`validators.ts`, where Zod checks the shape and the domain constructor checks
+the invariant. Each layer checks what it owns.
+
+### Two things the branding revealed
+
+`baselineDailyQuantity` and `postChangeDailyQuantity` on a change-point result
+are **not** quantities: a median over an even-sized window is the mean of the two
+middle values and can land on a half. They stay plain numbers, because branding
+them would be a claim the arithmetic does not support.
+
+And `assertSameCurrency` / `assertSameUnit` now guard the places amounts and
+quantities combine. Nothing in the seeded data mixes either, which is exactly
+why they are worth stating: that is a property of the fixture, not of the code.
+
+### Validation
+
+Mutation-checked twice, and the second one taught me something. Removing the
+constructors' checks fails two tests. Removing the *repository* validation
+initially failed nothing — because `subtractCents` downstream caught the
+fractional value anyway. Two independent defences, and a test that could not
+tell them apart.
+
+The boundary test now adds a half cent to **both** invoices, so their difference
+is a whole number and the checked arithmetic has nothing to object to. Only the
+row-level check catches it. That mutation now fails, and the test proves the
+guard it claims to.

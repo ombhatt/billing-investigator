@@ -1,3 +1,4 @@
+import { per } from "../support/values.js";
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
@@ -11,8 +12,8 @@ const deps: ToolDeps = { db: env.DB, investigationAccountId: "abc123" };
 
 const request = {
   accountId: "abc123",
-  currentPeriod: "2026-08",
-  comparisonPeriod: "2026-07",
+  currentPeriod: per("2026-08"),
+  comparisonPeriod: per("2026-07"),
   focusService: "Workers"
 };
 
@@ -169,7 +170,7 @@ describe("the runner refuses to overreach", () => {
     // It now declines before spending a call rather than failing on the lookup,
     // and names the period it does not have.
     await expect(
-      runInvestigation(deps, { ...request, comparisonPeriod: "2026-01" })
+      runInvestigation(deps, { ...request, comparisonPeriod: per("2026-01") })
     ).rejects.toThrow(/did not start.*2026-01/);
   });
 });

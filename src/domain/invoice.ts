@@ -1,4 +1,15 @@
 import { sumCents } from "./money.js";
+import {
+  addCents,
+  assertSameCurrency,
+  cents,
+  isoDate,
+  assertSameUnit,
+  subtractCents,
+  sumQuantities,
+  type Cents,
+  type Quantity
+} from "./units.js";
 import { periodEnd, periodStart } from "./period.js";
 import { effectivePrice, rateUsage } from "./rating.js";
 import type {
@@ -16,10 +27,22 @@ export function consumedInPeriod(
   daily: DailyUsage[],
   serviceName: string,
   period: Period
-): number {
-  return daily
-    .filter((d) => d.serviceName === serviceName && d.usageDate.startsWith(period))
-    .reduce((total, d) => total + d.quantity, 0);
+): Quantity {
+  const rows = daily.filter(
+    (d) => d.serviceName === serviceName && d.usageDate.startsWith(period)
+  );
+  // Requests and neurons do not add. Nothing in the seeded data mixes units
+  // within a service, which is a property of the fixture rather than of the
+  // code — so the code says so rather than relying on it.
+  const label = serviceName + " usage";
+  assertSameUnit(
+    rows.map((d) => d.unit),
+    label
+  );
+  return sumQuantities(
+    rows.map((d) => d.quantity),
+    label
+  );
 }
 
 /** Services that have metered usage, in stable order. */
@@ -63,7 +86,7 @@ export function generateRatedCharges(
 
 export interface FixedLineSource {
   serviceName: string;
-  amountCents: number;
+  amountCents: Cents;
   subscriptionId: string | null;
 }
 
@@ -77,7 +100,7 @@ export function generateInvoice(
   currency: string,
   ratedCharges: RatedCharge[],
   fixedLines: FixedLineSource[],
-  options: { creditCents?: number; taxCents?: number } = {}
+  options: { creditCents?: Cents; taxCents?: Cents } = {}
 ): { invoice: Invoice; lines: InvoiceLine[] } {
   const invoiceId = `inv-${accountId}-${period}`;
 
@@ -107,8 +130,11 @@ export function generateInvoice(
 
   const lines = [...fixed, ...usageLines];
   const subtotalCents = sumCents(lines.map((l) => l.amountCents));
-  const creditCents = options.creditCents ?? 0;
-  const taxCents = options.taxCents ?? 0;
+  const creditCents = options.creditCents ?? cents(0);
+  const taxCents = options.taxCents ?? cents(0);
+  // Every line on one invoice is denominated the same way; saying so is what
+  // stops a second currency being summed in silently later.
+  assertSameCurrency([currency], "invoice lines");
 
   const invoice: Invoice = {
     invoiceId,
@@ -119,8 +145,8 @@ export function generateInvoice(
     subtotalCents,
     creditCents,
     taxCents,
-    totalCents: subtotalCents - creditCents + taxCents,
-    issuedOn: nextMonthFirstDay(period)
+    totalCents: addCents(subtractCents(subtotalCents, creditCents), taxCents, "invoice total"),
+    issuedOn: isoDate(nextMonthFirstDay(period))
   };
 
   return { invoice, lines };

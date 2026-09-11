@@ -1,12 +1,13 @@
 import { rateCents } from "./money.js";
+import { addCents, quantity as asQuantity, type Cents, type Quantity } from "./units.js";
 import type { IsoDate, PriceVersion } from "./types.js";
 
 export interface RatingResult {
-  consumedQuantity: number;
-  includedQuantity: number;
-  billableQuantity: number;
+  consumedQuantity: Quantity;
+  includedQuantity: Quantity;
+  billableQuantity: Quantity;
   priceVersionId: string;
-  amountCents: number;
+  amountCents: Cents;
 }
 
 /**
@@ -15,10 +16,13 @@ export interface RatingResult {
  *   usage_charge_cents = rate(billable_quantity, effective_price_version)
  */
 export function rateUsage(
-  consumedQuantity: number,
+  consumedQuantity: Quantity,
   price: PriceVersion
 ): RatingResult {
-  const billableQuantity = Math.max(0, consumedQuantity - price.includedQuantity);
+  const billableQuantity = asQuantity(
+    Math.max(0, consumedQuantity - price.includedQuantity),
+    "billable quantity"
+  );
   const usageCents = rateCents(
     billableQuantity,
     price.overageRateCents,
@@ -30,12 +34,12 @@ export function rateUsage(
     includedQuantity: price.includedQuantity,
     billableQuantity,
     priceVersionId: price.priceVersionId,
-    amountCents: price.fixedFeeCents + usageCents
+    amountCents: addCents(price.fixedFeeCents, usageCents, "rated charge")
   };
 }
 
 /** Counterfactual cost used by variance decomposition. PRD §12.4. */
-export function costOf(quantity: number, price: PriceVersion): number {
+export function costOf(quantity: Quantity, price: PriceVersion): Cents {
   return rateUsage(quantity, price).amountCents;
 }
 

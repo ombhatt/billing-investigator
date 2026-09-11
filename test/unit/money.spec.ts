@@ -1,3 +1,4 @@
+import { c } from "./../support/values.js";
 import { describe, expect, it } from "vitest";
 import {
   formatUsd,
@@ -25,7 +26,7 @@ describe("integer-cent currency behaviour", () => {
 
   it("stays exact where floating point would not", () => {
     // 0.1 + 0.2 !== 0.3 in binary floating point; cents have no such problem.
-    expect(sumCents([10, 20])).toBe(30);
+    expect(sumCents([10, 20].map((n) => c(n)))).toBe(30);
     // A quantity large enough that a double would start losing precision if
     // the product were computed naively.
     expect(rateCents(1_580_000_000, 5000, 1_000_000)).toBe(7_900_000);
@@ -38,12 +39,12 @@ describe("integer-cent currency behaviour", () => {
   });
 
   it("returns null instead of dividing by a zero comparison total", () => {
-    expect(percentageChange(1000, 0)).toBeNull();
-    expect(Number.isFinite(percentageChange(1000, 500) as number)).toBe(true);
+    expect(percentageChange(c(1000), c(0))).toBeNull();
+    expect(Number.isFinite(percentageChange(c(1000), c(500)) as number)).toBe(true);
   });
 
   it("computes the golden percentage and its display rounding", () => {
-    const pct = percentageChange(2_172_000, 1_690_000) as number;
+    const pct = percentageChange(c(2_172_000), c(1_690_000)) as number;
     expect(pct).toBeCloseTo(28.52071, 5);
     expect(toOneDecimal(pct)).toBe(28.5);
   });

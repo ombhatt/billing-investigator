@@ -1,3 +1,4 @@
+import { cents, isoDate } from "../domain/units.js";
 import type { Subscription } from "../domain/types.js";
 
 interface SubscriptionRow {
@@ -33,8 +34,14 @@ export async function listSubscriptions(
     subscriptionId: row.subscription_id,
     accountId: row.account_id,
     planName: row.plan_name,
-    monthlyFeeCents: row.monthly_fee_cents,
-    startedOn: row.started_on,
-    endedOn: row.ended_on
+    monthlyFeeCents: cents(
+      row.monthly_fee_cents,
+      `subscription ${row.subscription_id} fee`
+    ),
+    startedOn: isoDate(row.started_on, `subscription ${row.subscription_id} start`),
+    endedOn:
+      row.ended_on === null
+        ? null
+        : isoDate(row.ended_on, `subscription ${row.subscription_id} end`)
   }));
 }

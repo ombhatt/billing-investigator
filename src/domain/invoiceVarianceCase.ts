@@ -5,6 +5,7 @@ import { checkDuplicates, mergeDuplicateReports } from "./duplicates.js";
 import { periodEnd, periodStart } from "./period.js";
 import { effectivePrice, priceChanged, priceVersionsOverlapping } from "./rating.js";
 import { meteredServiceNames } from "./servicePolicy.js";
+import { isoDate, quantity } from "./units.js";
 import { reconcileInvoice } from "./reconciliation.js";
 import type { BillingDataset, Period } from "./types.js";
 import { decomposeVariance } from "./variance.js";
@@ -84,7 +85,7 @@ export function analyseInvoiceVariance(input: InvoiceVarianceInput) {
     byDate.set(row.usageDate, (byDate.get(row.usageDate) ?? 0) + row.quantity);
   }
   const series: DailyPoint[] = [...byDate.entries()]
-    .map(([date, quantity]) => ({ date, quantity }))
+    .map(([date, total]) => ({ date: isoDate(date), quantity: quantity(total) }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   const focusPrice = effectivePrice(

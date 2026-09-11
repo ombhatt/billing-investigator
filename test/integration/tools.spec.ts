@@ -524,3 +524,65 @@ describe("get_usage_timeseries persists zone growth, not just zone share", () =>
     expect("error" in result).toBe(true);
   });
 });
+
+/**
+ * The validation boundary, exercised with data D1 will accept and the domain
+ * must not.
+ *
+ * SQLite columns are typed `INTEGER` by declaration, not by enforcement — it
+ * stores a 12.5 in one without complaint. Before the repositories validated,
+ * such a row entered the domain unchallenged and surfaced as a reconciliation
+ * discrepancy many steps later, with nothing pointing at the row that caused it.
+ */
+describe("repositories reject values the domain cannot represent", () => {
+  it("refuses a fractional cent the arithmetic alone would not notice", async () => {
+    // Both totals carry a half cent, so their *difference* is a whole number
+    // and the checked subtraction downstream has nothing to object to. Only a
+    // check at the row catches this — which is what makes the boundary worth
+    // having rather than relying on the arithmetic to notice later.
+    await env.DB.prepare(
+      "UPDATE invoices SET total_cents = total_cents + 0.5 WHERE period IN ('2026-08', '2026-07')"
+    ).run();
+
+    const result = await TOOL_HANDLERS.compare_invoices(
+      { accountId: "abc123", currentPeriod: "2026-08", comparisonPeriod: "2026-07" },
+      deps
+    );
+
+    expect("error" in result).toBe(true);
+    if ("error" in result) {
+      // A safe machine code and message: no stack trace, no raw SQL. PRD §16.
+      expect(result.error.message).not.toMatch(/SELECT|sqlite|at Object/i);
+    }
+
+    await seedDataset(env.DB, dataset);
+  });
+
+  it("refuses a negative usage quantity", async () => {
+    await env.DB.prepare(
+      "UPDATE daily_usage SET quantity = -5 WHERE usage_date = '2026-08-14'"
+    ).run();
+
+    const result = await TOOL_HANDLERS.get_usage_timeseries(
+      {
+        accountId: "abc123",
+        serviceName: "Workers",
+        startDate: "2026-08-01",
+        endDate: "2026-08-31"
+      },
+      deps
+    );
+
+    expect("error" in result).toBe(true);
+    await seedDataset(env.DB, dataset);
+  });
+
+  it("still reads a valid row after the bad one is gone", async () => {
+    // The control: the guard rejects bad data, not all data.
+    const result = await TOOL_HANDLERS.compare_invoices(
+      { accountId: "abc123", currentPeriod: "2026-08", comparisonPeriod: "2026-07" },
+      deps
+    );
+    expect("error" in result).toBe(false);
+  });
+});

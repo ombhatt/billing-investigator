@@ -1,5 +1,6 @@
 import type { EvidenceCard } from "../types/tools.js";
 import type { ToolName } from "../tools/catalog.js";
+import type { BillingPeriod } from "../domain/units.js";
 import type { InvestigationFacts } from "../tools/facts.js";
 
 /** PRD §10.3. */
@@ -74,8 +75,8 @@ export interface InvestigationRecord {
   investigationId: string;
   accountId: string;
   caseType: "invoice_variance" | null;
-  currentPeriod: string | null;
-  comparisonPeriod: string | null;
+  currentPeriod: BillingPeriod | null;
+  comparisonPeriod: BillingPeriod | null;
   focusService: string;
   serviceEffects: ServiceEffectSummary[];
   /** Fixed charges with no authorising subscription record. */
