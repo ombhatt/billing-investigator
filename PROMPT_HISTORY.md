@@ -1362,3 +1362,40 @@ this model, and the shape is held instead by prompt + `extractJson` + a zod
 parse that fails closed.
 
 508 tests. Golden facts unchanged.
+
+### A call diagram for `HOW_IT_WORKS.md`
+
+Asked for a diagram of the path from a submitted question to the answer, then to
+port it into `docs/HOW_IT_WORKS.md`.
+
+Traced the path from `server.ts`, `loop.ts`, `toolInputs.ts` and `registry.ts`
+rather than from memory, which turned up two things the prose had not been
+saying:
+
+The **first tool call happens during classification, not in the prelude**.
+`classifyPeriods` runs `get_account_context` before asking the model anything,
+because it needs the account's real invoice periods to check the model's answer
+against. The prelude's repeat of that same tool is a cache hit and costs no
+budget. (This is also the call that was once uncounted — twelve executed,
+eleven reported, §23.)
+
+And `deterministicSummary` **produces a complete answer before `explain()` is
+called at all**. The model is not generating the finding; it is offering a
+rewording that `safeNarrative` takes all-or-nothing. If Workers AI were
+unreachable the investigation would still answer.
+
+Ported as a mermaid `sequenceDiagram`, not the inline SVG that was drawn first:
+GitHub's markdown sanitiser strips SVG, and mermaid is what actually renders in
+a repo doc. Rewritten into the file's own register too — it opens "written for a
+reader who has not seen the code", so the diagram says "compare the invoices"
+and "twelve boundaries, zero tolerance" rather than naming
+`applicableDiagnostics` or `isConditionalTool`.
+
+Syntax verified by rendering rather than by inspection: `mermaid-cli` could not
+launch a browser, so the fence was extracted from the markdown and run through
+mermaid 10.9.1 in Chrome, which reported `MERMAID OK` and drew it correctly,
+`<br/>` in participant aliases and notes included.
+
+Two further diagrams exist in the artifact and were deliberately not ported: the
+tool-call gate pipeline belongs in `ARCHITECTURE.md`, which is the version for
+someone who has seen the code, and the follow-up branch was not asked for.

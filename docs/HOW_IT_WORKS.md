@@ -33,6 +33,63 @@ it until it is finished.
 
 ## One question, start to finish
 
+Five parts talk to each other, and time runs downward. The two lanes from the table
+above are visible in the shape: the model is consulted three times, and everything
+between those three calls is ordinary code.
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as Agent<br/>(Durable Object)
+    participant M as Workers AI<br/>(Llama 3.3)
+    participant T as Tools<br/>(nine, read-only)
+    participant D as D1
+
+    B->>A: the question
+    A->>T: confirm the account
+    T->>D: prepared query
+    D-->>T: rows
+    T-->>A: result + evidence
+    A->>M: which case, and which two months?
+    M-->>A: two months
+    Note over A: checked against the invoices the<br/>account actually has — a month it<br/>lacks is asked about, never guessed
+
+    A->>T: compare the invoices
+    A->>T: split usage, price, credit and tax
+    T-->>A: results + evidence
+
+    loop up to 4 rounds, 12 tool calls in total
+        A->>M: which follow-up checks?
+        M-->>A: names from the fixed menu
+        A->>T: the chosen checks
+    end
+
+    Note over A: then any required check it skipped,<br/>run whether or not the model asked
+    A->>T: reconcile the invoice
+    T-->>A: twelve boundaries, zero tolerance
+
+    Note over A: verdict and confidence computed here.<br/>The model has no vote
+    A->>M: put the finding in words
+    M-->>A: a sentence
+    Note over A: every amount, id, date and month in it<br/>checked against the evidence gathered.<br/>One invented figure discards the sentence
+    A->>B: answer + plan + evidence
+```
+
+Two things in that shape are easy to miss.
+
+**The first database lookup happens before the model is asked anything.** It has to:
+the agent needs to know which invoices the account actually has, or there is nothing to
+check the model's answer against. When the opening checks want the same lookup a moment
+later, the stored result is reused rather than the database asked twice.
+
+**By the second-to-last step, the answer already exists.** The figures are computed, the
+verdict is decided, and a plainly-worded version is ready to send. The model is offered
+the chance to say it better, and the guard takes that offer back if the sentence strays
+from the evidence. Were Workers AI unreachable, the investigation would still answer —
+just less fluently.
+
+The same seven steps, in detail:
+
 | # | Step | Lane | What happens |
 |---|---|---|---|
 | 1 | Read the question | Model | Works out this is an invoice-variance case and which two months to compare. If you name the months yourself, your choice wins outright. |
