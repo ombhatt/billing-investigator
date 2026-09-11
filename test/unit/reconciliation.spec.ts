@@ -28,7 +28,7 @@ function reconcile(period: Period, overrides: Partial<Parameters<typeof reconcil
 describe("reconciliation on the golden scenario", () => {
   const report = reconcile(per("2026-08"));
 
-  it("passes overall", () => {
+  it("reports status passed", () => {
     expect(report.status).toBe("passed");
   });
 

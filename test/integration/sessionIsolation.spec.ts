@@ -274,9 +274,10 @@ describe("visitors on different session names are isolated", () => {
     for (const c of [alice, bob]) c.socket.close();
   });
 
-  it("shows why a shared name was the defect", async () => {
-    // Both browsers on one instance: the reset reaches the visitor who did not
-    // ask for it. This is precisely what a per-browser name prevents.
+  it("delivers a reset to every connection sharing one name", async () => {
+    // The control for the test above: isolation comes from the name being
+    // per-browser, not from anything else in the reset path. Two connections on
+    // one name and the reset reaches the visitor who did not ask for it.
     const shared = `iso-shared-${crypto.randomUUID()}`;
     const first = await connect(shared);
     const second = await connect(shared);

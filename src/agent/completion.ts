@@ -5,25 +5,18 @@ import { REQUIRED_TOOLS } from "./playbooks/invoiceVariance.js";
 export const MIN_EXPLAINED_PERCENT = 95;
 
 /**
- * A diagnostic that has not run is not the same as one that ran and found
- * nothing, and completion must not treat it as such. Review showed a model that
- * ended planning immediately still receiving a high-confidence "invoice appears
- * correct" — duplication, pricing, usage shape and operational correlation all
- * unexamined, because only the prelude and reconciliation were ever required
- * and `?? 0` turned an unchecked duplicate count into a clean one.
+ * Which diagnostics this variance makes mandatory, derived from what the
+ * deterministic figures show rather than from what the model chose to run.
  *
- * Which diagnostics are required is therefore derived from what the
- * deterministic variance actually shows, not left to the model. PRD §10.5 rule
- * 5: when consumption materially changes, inspect its time series, change
- * point, operational events and possible duplicates.
+ * A diagnostic that has not run is not one that ran and found nothing, so an
+ * absent result is a blocker here, never a clean reading. PRD §10.5 rule 5;
+ * ARCHITECTURE.md §12.
  */
 export function applicableDiagnostics(
   facts: InvestigationFacts,
   /**
    * Metered services on the invoice. Price and duplicate findings are stated
-   * invoice-wide, so every metered service has to be checked — review found
-   * both hard-coded to Workers, which missed a Workers AI reprice and a
-   * Workers AI duplicate while asserting neither existed.
+   * invoice-wide, so each one is required per service. ARCHITECTURE.md §13.
    */
   meteredServices: string[] = []
 ): string[] {
@@ -66,17 +59,18 @@ export interface CompletionAssessment {
  */
 export function assessCompletion(input: {
   facts: InvestigationFacts;
-  completedTools: string[];
+  /** Step ids, not tool names: a per-service check counts only for the service it covered. */
+  completedStepIds: string[];
   meteredServices?: string[];
   unverifiedFixedCharges?: string[];
   fixedFeeMovementByService?: Record<string, number>;
   failedTools: string[];
 }): CompletionAssessment {
-  const { facts, completedTools, failedTools, meteredServices = [] } = input;
+  const { facts, completedStepIds, failedTools, meteredServices = [] } = input;
   const blockers: string[] = [];
 
   const missingRequired = REQUIRED_TOOLS.filter(
-    (tool) => !completedTools.includes(tool)
+    (id) => !completedStepIds.includes(id)
   );
   if (missingRequired.length > 0) {
     blockers.push(`required checks did not run: ${missingRequired.join(", ")}`);
@@ -85,7 +79,7 @@ export function assessCompletion(input: {
   // Diagnostics the variance itself makes applicable. The model chooses the
   // order and may add more, but it cannot decide to skip these.
   const missingDiagnostics = applicableDiagnostics(facts, meteredServices).filter(
-    (tool) => !completedTools.includes(tool)
+    (id) => !completedStepIds.includes(id)
   );
   if (missingDiagnostics.length > 0) {
     blockers.push(
@@ -112,9 +106,9 @@ export function assessCompletion(input: {
   }
 
   // A fixed charge with no authorising record can only be checked for
-  // arithmetic consistency. If such a charge *moved*, "explained" would be
-  // standing in for "valid" — which is precisely how an unauthorised platform
-  // fee got reported as correct. Movement we cannot verify blocks the claim.
+  // arithmetic consistency, so a charge that *moved* would have "explained"
+  // standing in for "valid". Unverifiable movement blocks the claim.
+  // ARCHITECTURE.md §14.
   const unverifiableMovement = (input.unverifiedFixedCharges ?? []).filter(
     (service) =>
       (input.fixedFeeMovementByService ?? {})[service] !== undefined &&
@@ -126,23 +120,22 @@ export function assessCompletion(input: {
     );
   }
 
-  // Only a duplicate check that actually ran can clear duplicates. An
-  // unchecked count is absence of evidence, not evidence of absence — it is
-  // reported above as a missing diagnostic instead of quietly reading as zero.
-  // Matches both the bare tool and its per-service ids.
-  const ranDuplicateCheck = completedTools.some(
-    (t) => t === "check_duplicate_usage" || t.startsWith("check_duplicate_usage:")
+  // Only a duplicate check that actually ran can clear duplicates; an unchecked
+  // count is reported above as a missing diagnostic rather than read as zero.
+  // Matches both the bare tool id and its per-service ids.
+  const ranDuplicateCheck = completedStepIds.some(
+    (id) => id === "check_duplicate_usage" || id.startsWith("check_duplicate_usage:")
   );
   const duplicatesChecked =
     ranDuplicateCheck &&
     facts.exact_duplicate_count !== null &&
     facts.probable_duplicate_count !== null;
-  const duplicates = duplicatesChecked
+  const duplicateGroupCount = duplicatesChecked
     ? facts.exact_duplicate_count! + facts.probable_duplicate_count!
     : 0;
-  const materialConflict = duplicatesChecked && duplicates > 0;
+  const materialConflict = duplicatesChecked && duplicateGroupCount > 0;
   if (materialConflict) {
-    blockers.push(`${duplicates} duplicate usage group(s) found`);
+    blockers.push(`${duplicateGroupCount} duplicate usage group(s) found`);
   }
 
   const { confidence, reasons } = evaluateConfidence({

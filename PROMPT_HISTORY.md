@@ -1102,3 +1102,52 @@ us nothing about whether the real store behaved the same way.
 489 tests, up from 481. Mutation-checked three ways: storing metadata instead of
 the envelope fails four, removing the generation check fails four, making
 failures reusable fails one.
+
+### Review recommendation — six readability improvements
+
+> "Beyond the five structural changes, I'd prioritize these smaller readability
+> improvements… Start with comments, names, and argument objects."
+
+The first readability-only review, and the first where one item was declined.
+
+**Comments had become incident reports.** Every defect fixed in this project left
+its story in a comment beside the fix. Individually reasonable; in aggregate,
+`loop.ts` read as a changelog. The invariant is what a reader needs at the call
+site — the history belongs in a document, and `ARCHITECTURE.md` §9–§25 already
+held all of it. Each trimmed comment now states the invariant and cites its
+addendum. ~50 comment lines across five files, no information lost.
+
+The reviewer suggested `PROMPT_HISTORY.md` as the destination. `ARCHITECTURE.md`
+is the better one and already the established home: it is organised per
+invariant, `CLAUDE.md` already points there, and this file is chronological.
+
+**`completedTools` named two different things** in two files — step ids in
+`completion.ts` (where per-service ids like `check_duplicate_usage:Workers AI`
+are the whole point), tool names in `modelClient.ts`. Renamed the first to
+`completedStepIds` and left the second, because there it was accurate. Also
+`duplicates` → `duplicateGroupCount`, `periods` → `availablePeriods`.
+
+**`classifyPeriods(record, question, question, question, deps)`** — three
+positional strings that are three views of the same turn, identical on an
+opening question and divergent on a clarification reply, which is exactly when
+getting one wrong reintroduces a defect this module has already had. Now a
+`ClassificationRequest` with `modelQuestion`, `originalQuestion`, `userReply`.
+Mutation-checked: passing the synthesised context as `userReply` fails two tests.
+
+**Five test names** now state what their assertions establish rather than why the
+test exists.
+
+**One item was already resolved** by the coordinator split — the trivial
+`serviceName` accessor and the misplaced comment blocks are both gone.
+
+**One item declined.** The reviewer read snake_case in `InvestigationFacts` as
+internal inconsistency to be translated at a serialization boundary. That type
+*is* the boundary: `npm run golden` JSON-serialises it, and the keys are the
+published contract in `CLAUDE.md`, PRD §24 and `BUILD_STATUS.md`, asserted
+verbatim by five test files. The translation layer the reviewer asked for exists
+already — it is the reducer map, converting camelCase `ToolOutput` fields into
+contract keys. What was missing was any marker that this was deliberate, so the
+type now says so. Renaming would have added a layer to reproduce the shape the
+type already has, and put a documented golden-fact contract at risk to do it.
+
+489 tests, unchanged — this pass moved no behaviour. Golden facts unchanged.

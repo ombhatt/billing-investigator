@@ -6,16 +6,11 @@ import { mayCommit } from "./generation.js";
 /**
  * Where an investigation's evidence and state live.
  *
- * Two PRD requirements were only half met. FR-12 asks for "tool calls **and
- * results**" to be persisted; the agent wrote an audit row per call carrying the
- * tool name, timing and error code, and dropped the envelope — the evidence
- * cards, the data limitations, the values behind every claim. FR-5 asks for "a
- * cached **persisted** result within the investigation"; the cache was a `Map`
- * that died with the turn, so the same question asked twice re-read D1 both
- * times, and an isolate that went away took the evidence with it.
- *
- * Putting both behind one interface also removes the reason tests had to reach
- * into the Durable Object's own storage and state to observe them.
+ * Both PRD requirements are met here rather than at the call site: FR-12 keeps
+ * tool calls *and their results* — envelope, evidence cards and data
+ * limitations, not just that a call happened — and FR-5's cache is this durable
+ * record, so evidence outlives the isolate that produced it and a repeated call
+ * does not re-read D1. ARCHITECTURE.md §25.
  */
 
 /** A tool call and everything it produced, kept whole. */
@@ -189,12 +184,9 @@ export class DurableObjectStore implements InvestigationStore {
 }
 
 /**
- * The same contract, in memory.
- *
- * Tests used to reach into the Durable Object — shadowing `sql` and `setState`
- * on the SDK's own prototype — to watch persistence happen. They can use this
- * instead, and what they exercise is the interface production uses rather than
- * a stand-in for a stand-in.
+ * The same contract, in memory, so a test observes persistence through the
+ * interface production uses instead of shadowing the Durable Object's own
+ * storage.
  */
 export class InMemoryInvestigationStore implements InvestigationStore {
   private readonly rows: RecordedEnvelope[] = [];

@@ -4,6 +4,14 @@ import type { ToolName, ToolOutput } from "./catalog.js";
 /**
  * The structured block every path must agree on: pure domain, the M3 runner,
  * and the agent. Kept in one place so those paths cannot drift.
+ *
+ * snake_case here is deliberate, and is the one exception to camelCase in this
+ * codebase. This type *is* the external serialization boundary rather than
+ * something behind one: `npm run golden` prints it with `JSON.stringify`, and
+ * these key names are the published contract — PRD §24, the golden fact block
+ * in CLAUDE.md, and `docs/BUILD_STATUS.md`, asserted verbatim by the golden
+ * tests. Everything that feeds it (`ToolOutput`, the domain types) is camelCase
+ * and converts in the reducers below, which is the translation step.
  */
 export interface InvestigationFacts {
   current_total_cents: number | null;
@@ -51,20 +59,15 @@ export function emptyFacts(): InvestigationFacts {
   };
 }
 
-
 /** Extra context a reducer may need that is not in the tool's own output. */
 export interface FactContext {
   changeDate?: string | null;
 }
 
 /**
- * One reducer per tool, each typed to that tool's actual output.
- *
- * These were a `switch` over `string` with a hand-written `as` cast in every
- * branch — nine assertions about shapes the compiler was not checking. A tool
- * could rename a field and every consumer would keep compiling and silently
- * read `undefined`. Here `data` is `ToolOutput<N>`, so a renamed or removed
- * field fails the build at the reducer that depends on it.
+ * One reducer per tool, each typed to that tool's actual output, so `data` is
+ * `ToolOutput<N>` and a renamed or removed field fails the build here rather
+ * than silently reading `undefined`. ARCHITECTURE.md §22.
  *
  * Tools absent from this map contribute no facts, which is a statement rather
  * than an omission: `get_account_context` and `get_usage_timeseries` produce
@@ -100,17 +103,16 @@ const REDUCERS: FactReducers = {
     price_effect_cents: d.priceEffectCents
   }),
 
-  // Checked once per metered service, so this accumulates: a price change
-  // anywhere on the invoice is a price change. Overwriting meant the last
-  // service checked decided the invoice-wide answer.
+  // Checked once per metered service, so this accumulates rather than
+  // overwrites: a price change anywhere on the invoice is a price change.
   get_price_versions: (facts, d) => ({
     ...facts,
     price_changed: facts.price_changed === true ? true : d.priceChanged
   }),
 
-  // Only an accepted change point becomes a fact. Keeping the date alone
-  // discarded the very qualifiers that said whether to believe it, so a
-  // rejected candidate read downstream exactly like a confirmed shift.
+  // Only an accepted change point becomes a fact, and its qualifiers travel
+  // with the date — without them a rejected candidate reads downstream exactly
+  // like a confirmed shift. ARCHITECTURE.md §18.
   detect_usage_change_point: (facts, d) =>
     d.detected
       ? {

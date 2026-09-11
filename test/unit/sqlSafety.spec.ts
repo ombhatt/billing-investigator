@@ -18,7 +18,9 @@ function read(dir: string): { file: string; source: string }[] {
 describe("SQL construction safety", () => {
   const repositories = read(REPO_DIR);
 
-  it("has repository files to check", () => {
+  it("found at least five repository files to scan", () => {
+    // Guards the scan itself: a glob that silently matched nothing would make
+    // every check below pass vacuously.
     expect(repositories.length).toBeGreaterThanOrEqual(5);
   });
 

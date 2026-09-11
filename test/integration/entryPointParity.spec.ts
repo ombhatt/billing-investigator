@@ -149,7 +149,7 @@ describe("every entry point reports the same investigation", () => {
       await seedDataset(env.DB, dataset);
     });
 
-    it("is counted by all three", async () => {
+    it("is counted identically by agent, runner and domain", async () => {
       const agent = await throughAgent(env.DB);
       const runner = await throughRunner(env.DB);
       const domain = goldenFacts({ dataset, ...request });

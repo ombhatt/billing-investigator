@@ -48,7 +48,7 @@ describe("duplicate detection on the golden scenario", () => {
     expect(report.probableCostCents).toBe(0);
   });
 
-  it("actually checked every event", () => {
+  it("fingerprinted every August event, with no sampling", () => {
     expect(augustWorkers.length).toBeGreaterThan(1000);
     expect(report.fingerprintsChecked).toBe(augustWorkers.length);
     expect(report.sampledRecordIds).toEqual([]);

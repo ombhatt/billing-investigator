@@ -85,12 +85,8 @@ export function stepId(tool: ToolName, service?: string): string {
 }
 
 /**
- * Price and duplicate checks run once per metered service.
- *
- * Review found these hard-coded to Workers while the answer made invoice-wide
- * claims: a Workers AI reprice and a Workers AI duplicate were both missed
- * while the summary said pricing was unchanged and no duplicates existed. An
- * assertion about the invoice has to be backed by a check of the invoice.
+ * Price and duplicate checks run once per metered service: an invoice-wide
+ * claim has to be backed by a check of the whole invoice. ARCHITECTURE.md §13.
  */
 const PER_SERVICE_TOOLS = ["get_price_versions", "check_duplicate_usage"];
 
@@ -184,10 +180,10 @@ const INPUT_BUILDERS: { [N in ToolName]: InputBuilder<N> } = {
     );
   },
 
-  // Scoped to the driver: this locates when and where consumption moved. It
-  // also carries the comparison window, because "which zone generated the
-  // increase?" is a required follow-up and follow-ups answer from persisted
-  // evidence — the comparison has to be on record by then.
+  // Scoped to the driver: where and when consumption moved. The comparison
+  // window is requested too, because the required "which zone generated the
+  // increase?" follow-up answers from persisted evidence and needs a baseline
+  // to compare against. ARCHITECTURE.md §19.
   get_usage_timeseries: (record) => {
     const p = periods(record);
     return (
@@ -337,9 +333,8 @@ export async function runInvestigationTurn(
     );
   }
 
-  // One executor per turn: every tool call, wherever it is made from, is
-  // counted here. Classification used to call the runner directly and go
-  // uncounted, so a twelve-call turn reported eleven.
+  // One executor per turn: every tool call, classification included, is
+  // counted in one place. ARCHITECTURE.md §23.
   const turn: TurnDeps = {
     executor: new ToolExecutor(deps.runner, {
       alreadySpent: input.metrics.toolCalls,
@@ -352,17 +347,26 @@ export async function runInvestigationTurn(
   let record = input;
 
   // 1. Classify. A clarification reply is classified too, against the request
-  // it answers — the previous branch transitioned straight to planning without
-  // reclassifying, so the periods stayed null and every turn after a
-  // clarification investigated nothing and returned unresolved.
+  // it answers, so the periods it names take effect. See ARCHITECTURE.md §17.
   if (record.state === "created") {
-    record = await classifyPeriods(record, question, question, question, turn);
+    // Opening question: all three views of the turn are the same text.
+    record = await classifyPeriods(
+      record,
+      {
+        modelQuestion: question,
+        originalQuestion: question,
+        userReply: question
+      },
+      turn
+    );
   } else if (record.state === "clarification_required") {
     record = await classifyPeriods(
       record,
-      clarificationContext(record, question),
-      record.originalQuestion ?? question,
-      question,
+      {
+        modelQuestion: clarificationContext(record, question),
+        originalQuestion: record.originalQuestion ?? question,
+        userReply: question
+      },
       turn
     );
   }
@@ -377,9 +381,8 @@ export async function runInvestigationTurn(
     record = await callTool(record, step.tool, turn);
   }
 
-  // 2a. Comparison and decomposition now tell us which services are metered and
-  // which is the actual driver. Both were previously hard-coded to Workers,
-  // which made Workers-only findings read as invoice-wide claims.
+  // 2a. Comparison and decomposition are what reveal which services are metered
+  // and which is the driver; neither is known before they run.
   const metered = meteredServices(record);
   if (metered.length > 0) {
     record = {
@@ -449,13 +452,10 @@ export async function runInvestigationTurn(
   }
 
   // 3a. Backstop: run any diagnostic the variance makes applicable that the
-  // model did not select. Live running showed the real model omitting the price
-  // check, which correctly produced "unresolved" — but a mandatory check should
-  // not depend on the model choosing it. The model owns ordering and optional
-  // extras; it does not gate required work.
-  // Recomputed as facts arrive: get_account_events only becomes applicable once
-  // the change point has produced a date to anchor its window, so a single
-  // up-front list would miss it.
+  // model did not select. The model owns ordering and optional extras; it never
+  // gates required work. ARCHITECTURE.md §12.
+  // Recomputed each pass rather than listed up front: get_account_events only
+  // becomes applicable once the change point has produced a date to anchor it.
   for (let pass = 0; pass < PER_SERVICE_TOOLS.length + 2; pass++) {
     const done = record.plan
       .filter((s) => s.status === "completed")
@@ -481,9 +481,7 @@ export async function runInvestigationTurn(
   record = await callTool(record, REQUIRED_RECONCILIATION.tool, turn);
 
   // 5. Server-side completion criteria and deterministic confidence.
-  // Step ids, not tool names, so a per-service check counts only for the
-  // service it actually covered.
-  const completedTools = record.plan
+  const completedStepIds = record.plan
     .filter((s) => s.status === "completed")
     .map((s) => s.id);
   const failedTools = record.plan
@@ -492,7 +490,7 @@ export async function runInvestigationTurn(
 
   const assessment = assessCompletion({
     facts: record.facts,
-    completedTools,
+    completedStepIds,
     meteredServices: metered,
     // Fixed charges with no authorising subscription can only be checked
     // arithmetically, so movement in one cannot be called explained.

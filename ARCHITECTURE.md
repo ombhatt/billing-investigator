@@ -1119,3 +1119,85 @@ turn's envelopes, because the calls did happen.
 Mutation-checked three ways: storing metadata instead of the envelope fails four
 tests, removing the generation check fails four, and making failures reusable
 fails one.
+
+## 26. Addendum: comments state invariants, names state scope
+
+A readability review made six points about how this code reads rather than what
+it does. Four were applied, one was already resolved by an earlier split, and
+one is declined with reasoning.
+
+### Incident history moved out of the code
+
+Comments across `loop.ts`, `periodResolution.ts`, `completion.ts`, `facts.ts`
+and `investigationStore.ts` had accumulated into narratives of the defects that
+produced them — a useful record, in the wrong place. A reader of
+`PER_SERVICE_TOOLS` needs the invariant ("an invoice-wide claim must be backed
+by a check of the whole invoice"), not the account of which two services were
+missed when it was hard-coded.
+
+Each of these now states the invariant and cites the addendum that holds the
+story: §12 for unperformed diagnostics, §13 for diagnostic scope, §14 for fixed
+fees, §17 and §20 for period resolution, §18 for change points, §19 for growth
+share, §22 for the catalog, §23 for the split, §25 for the store. The history is
+unchanged and still one link away; what is gone is the retelling at every call
+site. Roughly 50 comment lines across the five files.
+
+### `completedTools` named two different things
+
+`assessCompletion` received step ids — which for a per-service check carry the
+service, `check_duplicate_usage:Workers AI` — under a name that said tool names.
+`ModelClient.planNext` receives actual tool names under the identical name. The
+distinction matters: it is what makes a per-service check count only for the
+service it covered. The completion side is now `completedStepIds`; the model
+side keeps `completedTools`, because there it is accurate.
+
+Also `duplicates` → `duplicateGroupCount` (it counts groups, not events), and
+`periods` → `availablePeriods` in `periodResolution.ts`, where the whole module
+turns on the difference between periods that exist and periods that were asked
+for.
+
+### `classifyPeriods` took four positional strings
+
+`classifyPeriods(record, question, question, question, deps)` at one call site
+and three different strings at the other. Three of those parameters are
+different views of the same turn, identical on an opening question and divergent
+on a clarification reply — which is precisely when passing the wrong one
+reintroduces §17 or §20. They are now a `ClassificationRequest` with
+`modelQuestion`, `originalQuestion` and `userReply`.
+
+Mutation-checked: passing the synthesised clarification context as `userReply`
+— the wrong-but-plausible choice, and the exact shape of a defect this module
+has had — fails two tests in `clarification.spec.ts`.
+
+### Test names state what they establish
+
+`"shows why a shared name was the defect"` described the history, not the
+assertion; it is now `"delivers a reset to every connection sharing one name"`,
+which is what the test checks and reads correctly as the control for the
+isolation test above it. Four others were sharpened the same way: `"passes
+overall"`, `"is counted by all three"`, `"actually checked every event"` and
+`"has repository files to check"`.
+
+### Already resolved
+
+The review flagged a `serviceName` helper that only returned `effect.serviceName`
+and two comment blocks describing functions they did not sit above. The
+coordinator split (§23) removed both: the accessor is gone, and
+`captureUnverifiedFixedCharges` and `captureServiceEffects` each carry their own
+doc comment in `resultReducer.ts`.
+
+### Declined: snake_case in `InvestigationFacts`
+
+The review read this as internal naming inconsistent with the camelCase used in
+`src/domain/`, to be translated at a serialization boundary. The direction is
+inverted: `InvestigationFacts` **is** that boundary. `npm run golden` prints it
+with `JSON.stringify`, and those exact keys are the published contract — the
+golden fact block in `CLAUDE.md`, PRD §24, `docs/BUILD_STATUS.md` — asserted
+verbatim by five test files. Renaming to camelCase would mean adding a
+translation layer whose only output is the shape the type already has.
+
+The translation step already exists and is the reducer map in `facts.ts`, where
+camelCase `ToolOutput` fields become the contract's snake_case keys. What was
+genuinely missing was any statement that this was deliberate, so a reader had no
+way to tell an intentional boundary from an inconsistency. The type now carries
+that note.

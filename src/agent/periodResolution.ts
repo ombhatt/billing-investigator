@@ -10,11 +10,9 @@ import type { InvestigationRecord } from "./types.js";
  * Which two periods this investigation compares, and what to ask when that
  * cannot be settled.
  *
- * Extracted from the coordinator because it changes for entirely different
- * reasons than sequencing does: how a question is read, what a clarification
- * reply means, how an unavailable month is reported. Three separate defects
- * have lived in here, and all three were about interpreting a request rather
- * than about running a playbook.
+ * Separate from the coordinator because it changes for different reasons than
+ * sequencing does: how a question is read, what a clarification reply means,
+ * how an unavailable month is reported. ARCHITECTURE.md §17, §20.
  */
 
 export const DEFAULT_CLARIFICATION =
@@ -58,32 +56,28 @@ export type PeriodChoice =
   | { clarify: string };
 
 /**
- * Which two periods to compare, or what to ask.
+ * Which two periods to compare, or what to ask. Three rules, in precedence
+ * order (ARCHITECTURE.md §20):
  *
- * Three rules, learned in this order:
- *
- * 1. A pair the reader named explicitly is used as given. Checking only that
- *    the model's periods *exist* was not enough — told "2026-06 and 2026-07",
- *    the live model answered with 2026-07 and 2026-08, both available, and the
- *    agent investigated a pair nobody asked for.
- * 2. A requested period the account does not have is *reported*, never quietly
- *    swapped for the newest invoice. Substituting turned "why did May jump?"
- *    into a confident answer about August.
- * 3. Falling back to the two most recent invoices survives in exactly one
- *    case: the model could not be reached at all, so nothing was requested and
- *    nothing is being overridden.
+ * 1. Periods the reader named explicitly win over the model's selection. The
+ *    model's pair being *available* is not sufficient — it may be available and
+ *    still not the pair that was asked about.
+ * 2. A requested period the account does not have is reported, never
+ *    substituted with the newest invoice.
+ * 3. The two most recent invoices are a fallback for one case only: the model
+ *    was unreachable, so nothing was requested and nothing is being overridden.
  */
 export function resolvePeriods(
   classification: CaseClassification | null,
-  periods: string[],
+  availablePeriods: string[],
   requested: BillingPeriod[]
 ): PeriodChoice {
-  const sorted = [...periods].sort();
+  const sorted = [...availablePeriods].sort();
 
-  if (periods.length < 2) {
+  if (availablePeriods.length < 2) {
     return {
       clarify:
-        periods.length === 0
+        availablePeriods.length === 0
           ? "I have no invoices for this account, so there is nothing to compare."
           : `I only have one invoice for this account (${sorted[0]}), so there is nothing to compare it with.`
     };
@@ -114,12 +108,12 @@ export function resolvePeriods(
   }
 
   const modelPeriods = [classification.currentPeriod, classification.comparisonPeriod];
-  const missing = [...new Set(modelPeriods.filter((p) => !periods.includes(p)))];
+  const missing = [...new Set(modelPeriods.filter((p) => !availablePeriods.includes(p)))];
   if (missing.length > 0) {
     return {
       clarify:
         `I do not have ${missing.join(" or ")} for this account. ` +
-        `Available periods are ${listPeriods(periods)}. Which two should I compare?`
+        `Available periods are ${listPeriods(availablePeriods)}. Which two should I compare?`
     };
   }
 
@@ -127,7 +121,7 @@ export function resolvePeriods(
     return {
       clarify:
         `That names ${classification.currentPeriod} twice. ` +
-        `Available periods are ${listPeriods(periods)}. Which two should I compare?`
+        `Available periods are ${listPeriods(availablePeriods)}. Which two should I compare?`
     };
   }
 
@@ -148,26 +142,34 @@ export interface ClassifyDeps {
 }
 
 /**
- * Classify and pin down the periods, or return the record still waiting.
- *
- * `question` is what the model reads; `provenance` is the request to remember,
- * so a clarification round trip keeps the original rather than storing the
- * synthesised context as though the user had typed it. `userText` is only ever
- * this turn's message — the synthesised context still quotes the original
- * request, so parsing that would re-raise the same objection forever and the
- * reader could never answer it.
+ * Three views of the same turn, which are only identical on the opening
+ * question. On a clarification reply they differ, and passing the wrong one
+ * reintroduces a defect this module has already had.
  */
+export interface ClassificationRequest {
+  /** What the model reads. On a clarification reply, the synthesised context. */
+  modelQuestion: string;
+  /** The request to remember as the investigation's own, across round trips. */
+  originalQuestion: string;
+  /**
+   * This turn's message alone, and never the synthesised context — which quotes
+   * the original request, so parsing it would re-raise an objection about a
+   * period the reader has just been asked to replace.
+   */
+  userReply: string;
+}
+
+/** Classify and pin down the periods, or return the record still waiting. */
 export async function classifyPeriods(
   record: InvestigationRecord,
-  question: string,
-  provenance: string,
-  userText: string,
+  request: ClassificationRequest,
   deps: ClassifyDeps
 ): Promise<InvestigationRecord> {
+  const { modelQuestion, originalQuestion, userReply } = request;
   const outcome = await deps.executor.execute("get_account_context", {
     accountId: record.accountId
   });
-  const periods =
+  const availablePeriods =
     outcome.result === null || isFailure(outcome.result)
       ? []
       : outcome.result.data.availableInvoices.map((i) => i.period);
@@ -178,22 +180,21 @@ export async function classifyPeriods(
     cachedToolCalls: deps.executor.cachedToolCalls
   };
 
-  // Checked against what the reader actually typed, before the model is asked.
-  // Validating only the model's answer is not enough: shown the available
-  // periods, the live model quietly answers with those instead of the months it
-  // was asked about, so the substitution happens before any check can see it.
-  const asked = periodsNamed(userText, periods);
-  if (periods.length > 0) {
-    const unavailable = asked.filter((p) => !periods.includes(p));
+  // Read from what the reader typed, before the model is asked. A model shown
+  // the available periods may answer with those rather than the months in the
+  // question, so checking only its answer cannot detect the substitution.
+  const asked = periodsNamed(userReply, availablePeriods);
+  if (availablePeriods.length > 0) {
+    const unavailable = asked.filter((p) => !availablePeriods.includes(p));
     if (unavailable.length > 0) {
       return {
         ...record,
         metrics,
-        originalQuestion: record.originalQuestion ?? provenance,
+        originalQuestion: record.originalQuestion ?? originalQuestion,
         state: transition(record.state, "clarification_required"),
         clarificationQuestion:
           `I have no invoice for ${unavailable.join(" or ")} on this account. ` +
-          `Available periods are ${listPeriods(periods)}. Which two should I compare?`
+          `Available periods are ${listPeriods(availablePeriods)}. Which two should I compare?`
       };
     }
   }
@@ -201,9 +202,9 @@ export async function classifyPeriods(
   let classification: CaseClassification | null;
   try {
     classification = await deps.model.classify({
-      question,
+      question: modelQuestion,
       boundAccountId: record.accountId,
-      availablePeriods: periods
+      availablePeriods
     });
   } catch {
     classification = null;
@@ -213,10 +214,10 @@ export async function classifyPeriods(
   // one account server-side and a model-supplied id cannot widen that.
   const choice = resolvePeriods(
     classification,
-    periods,
-    asked.filter((p) => periods.includes(p))
+    availablePeriods,
+    asked.filter((p) => availablePeriods.includes(p))
   );
-  const remembered = record.originalQuestion ?? provenance;
+  const remembered = record.originalQuestion ?? originalQuestion;
 
   if ("clarify" in choice) {
     return {
