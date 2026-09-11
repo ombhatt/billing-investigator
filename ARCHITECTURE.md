@@ -1395,3 +1395,69 @@ A drive-by from the same move: `test/unit/toolTypes.spec.ts` reads source files
 by path string, and caught the relocation by throwing `ENOENT` rather than
 quietly asserting nothing. That is the count guard's lesson arriving on its own.
 
+---
+
+## 30. Addendum: the arguments nobody could see
+
+`src/agent/loop.ts` was 561 lines doing five jobs. The clearest seam was
+`INPUT_BUILDERS` — a table keyed by `ToolName`, one builder per tool, 130 lines
+that depended on nothing in the turn but the record itself.
+
+### What the placement cost
+
+Every tool call the agent makes is built there. The model chooses *which*
+conditional tools run; it supplies no argument, ever. So this table is where
+the period compared, the window scanned, the service checked and the account
+read are all decided — and none of it could be questioned without running a
+whole turn against D1 and reading the answer back out of an envelope.
+
+That is why the windows were asserted through tool *output*. The event window's
+±24h anchor, the price window spanning both periods, the usage series carrying
+its baseline: each is a decision made in one line of a builder, and each was
+checked only where a seeded fixture happened to make it visible downstream. A
+builder could have been wrong in a way the golden fixture did not exercise and
+every test would still have passed — the §12 shape again, one layer up.
+
+### The extraction
+
+`src/agent/toolInputs.ts` exports one function, `inputFor(tool, record,
+service?)`. The builders, the `InputBuilder` type and the `periods()` helper
+moved with it unchanged. `periods()` now sits above the builders, which is what
+its own comment ("the builders below") always claimed.
+
+`loop.ts` is 431 lines and its remaining jobs are sequencing: plan expansion,
+tool dispatch, hypothesis folding and the turn itself. `stepId` and
+`pickFocusService` lost `export` keywords no consumer was using.
+
+### What the tests can now ask
+
+`test/unit/toolInputs.spec.ts`, in plain Node, with no database:
+
+- Every builder is scoped to the investigation's account. `createTool` already
+  compares the argument against the bound account and rejects a mismatch; this
+  is the other half, at the point the argument is written.
+- No builder but `get_account_context` produces anything before the periods are
+  classified — a builder that reached for `record.currentPeriod!` would invent a
+  period rather than skip its step.
+- The event window is not built at all without a change point to anchor it.
+  Invariant 21: a window centred on nothing still returns events, and any one of
+  them then reads as correlated with a change that was never detected.
+- The price window spans the comparison period's first day to the current
+  period's last. Invariant 22: a request starting at the current period cannot
+  tell a price that moved between the periods from one that never did.
+- The usage series carries its comparison window, because the zone follow-up is
+  answered from persisted evidence with no new calls (§19).
+- A per-service tool checks the service it is handed, not the driver.
+
+One check is new rather than relocated: every built input is parsed by its own
+tool's zod schema. The compiler checks a builder's *shape*; it cannot check a
+*format*, and the formats — the period regex, ISO dates, timestamps — live in
+the schemas. Nothing had ever run a built input through them.
+
+Mutation-checked seven ways: the price window narrowed to the current period,
+the change-point guard removed, the service argument ignored, an account
+substituted, the baseline dropped, a builder that does not wait for periods,
+and a cast past the compiler producing a malformed period. That last one fails
+only the schema check, and it typechecks clean — which is the case that check
+exists for.
+

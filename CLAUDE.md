@@ -85,7 +85,7 @@ the financial logic provable. Enforced by `test/unit/domainPurity.spec.ts`, not 
 ## Review invariants — earned from defects, mutation-checked, do not regress
 
 Findings and design reviews, one shape: a guarantee checked in the present-and-wrong case but
-not the absent one. Reasoning per item is in `ARCHITECTURE.md` §9–§29.
+not the absent one. Reasoning per item is in `ARCHITECTURE.md` §9–§30.
 
 21. **Absence is not proof, and a candidate is not a finding.** A check whose inputs are gone
     has not run; a scan's best row is not a detection. Covers unchecked duplicates, unperformed

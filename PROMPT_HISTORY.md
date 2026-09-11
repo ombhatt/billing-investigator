@@ -1265,3 +1265,51 @@ and threw `ENOENT` rather than asserting nothing — the count guard's lesson
 arriving unprompted. Reasoning recorded in `ARCHITECTURE.md` §29.
 
 499 tests, up from 496. Golden facts unchanged.
+
+### Code-organization review — split the coordinator's argument building
+
+Third of the three findings from the layout review, after the `facts.ts` move
+and the domain purity scan.
+
+`loop.ts` was 561 lines. `INPUT_BUILDERS` — one builder per tool, keyed by
+`ToolName` — was 130 of them, and depended on nothing in the turn but the
+investigation record. Moved to `src/agent/toolInputs.ts` behind a single
+exported `inputFor(tool, record, service?)`. The builders themselves are
+unchanged; `periods()` moved above them so its comment ("the builders below")
+is true. `loop.ts` is 431 lines.
+
+The point was never the line count. Every tool call the agent makes is built in
+that table — the model supplies no argument, only a choice of which conditional
+tools run — so it decides the period compared, the window scanned, the service
+checked and the account read. None of that could be questioned without running
+a full turn against D1 and reading the answer back out of a tool envelope.
+Which meant the windows were asserted through tool *output*, where a seeded
+fixture happened to make them visible, and never at the point they are chosen.
+
+`test/unit/toolInputs.spec.ts` now asks in plain Node: is the event window
+anchored ±24h on the change date, and absent entirely when there is no change
+point (invariant 21)? Does the price window span both periods (invariant 22)?
+Does the usage series carry its baseline (§19)? Does a per-service tool check
+the service it was handed? Is every builder on-account? Does anything but
+account context get built before the periods are classified?
+
+One check is genuinely new: every built input is parsed by its own tool's zod
+schema. TypeScript checks a builder's shape but not a *format* — the period
+regex, the ISO dates, the timestamps are all in the schemas, and no built input
+had ever been run through them.
+
+Mutation-checked seven ways, including a cast past the compiler that produces a
+malformed period: it typechecks clean and fails only the schema check, which is
+the case that check exists for.
+
+Adjacent, flagged rather than assumed: `stepId` and `pickFocusService` were
+exported from `loop.ts` with zero consumers anywhere, including tests. Both
+`export` keywords dropped, matching the earlier dead-export cleanup.
+
+Left undone deliberately: `runInvestigationTurn` is still a ~240-line sequence
+of six numbered phases. Steps 5 and 6 (completion assessment, then summary and
+narration) are a real seam and could follow. The four earlier phases thread the
+record through each other, so splitting them buys indirection, not isolation.
+
+508 tests, up from 499. Golden facts unchanged. Reasoning in `ARCHITECTURE.md`
+§30.

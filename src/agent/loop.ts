@@ -1,12 +1,10 @@
-import { periodEnd, periodStart } from "../domain/period.js";
-import type { BillingPeriod } from "../domain/units.js";
 import {
   driverService,
   meteredServiceNames,
   type ServiceCandidate
 } from "../domain/servicePolicy.js";
 import { isAllowedTool } from "../tools/registry.js";
-import type { ToolInput, ToolName, ToolRunner } from "../tools/registry.js";
+import type { ToolName, ToolRunner } from "../tools/registry.js";
 
 import { applicableDiagnostics, assessCompletion } from "./completion.js";
 import { emptyFacts } from "./facts.js";
@@ -27,6 +25,7 @@ import { classifyPeriods, clarificationContext } from "./periodResolution.js";
 import { reduceSkipped, reduceToolResult } from "./resultReducer.js";
 import { isTerminal, transition } from "./stateMachine.js";
 import { ToolExecutor } from "./toolExecution.js";
+import { inputFor } from "./toolInputs.js";
 import { deterministicSummary } from "./summary.js";
 import type { InvestigationRecord, PlanStep } from "./types.js";
 
@@ -80,7 +79,7 @@ export function newInvestigation(
 }
 
 /** Steps are addressed by id, which for per-service steps includes the service. */
-export function stepId(tool: ToolName, service?: string): string {
+function stepId(tool: ToolName, service?: string): string {
   return service === undefined ? tool : `${tool}:${service}`;
 }
 
@@ -136,140 +135,11 @@ function asCandidates(record: InvestigationRecord): ServiceCandidate[] {
  * The service to investigate in depth: the largest absolute mover, rather than
  * a compile-time constant. A hard-coded focus is right only by luck.
  */
-export function pickFocusService(
+function pickFocusService(
   record: InvestigationRecord,
   metered: string[]
 ): string {
   return driverService(asCandidates(record), metered[0] ?? record.focusService);
-}
-
-/**
- * Tool arguments, built by the server from the investigation record.
- *
- * One builder per tool, each returning that tool exact input type, so a
- * misspelled or mistyped argument fails the build rather than the request. A
- * builder returns null when the record cannot supply the arguments yet.
- */
-type InputBuilder<N extends ToolName> = (
-  record: InvestigationRecord,
-  service: string | undefined
-) => ToolInput<N> | null;
-
-const INPUT_BUILDERS: { [N in ToolName]: InputBuilder<N> } = {
-  get_account_context: (record) => ({ accountId: record.accountId }),
-
-  compare_invoices: (record) => {
-    const p = periods(record);
-    return (
-      p && {
-        accountId: record.accountId,
-        currentPeriod: p.current,
-        comparisonPeriod: p.comparison
-      }
-    );
-  },
-
-  decompose_variance: (record) => {
-    const p = periods(record);
-    return (
-      p && {
-        accountId: record.accountId,
-        currentPeriod: p.current,
-        comparisonPeriod: p.comparison
-      }
-    );
-  },
-
-  // Scoped to the driver: where and when consumption moved. The comparison
-  // window is requested too, because the required "which zone generated the
-  // increase?" follow-up answers from persisted evidence and needs a baseline
-  // to compare against. ARCHITECTURE.md §19.
-  get_usage_timeseries: (record) => {
-    const p = periods(record);
-    return (
-      p && {
-        accountId: record.accountId,
-        serviceName: record.focusService,
-        startDate: periodStart(p.current),
-        endDate: periodEnd(p.current),
-        comparisonStartDate: periodStart(p.comparison),
-        comparisonEndDate: periodEnd(p.comparison)
-      }
-    );
-  },
-
-  detect_usage_change_point: (record) => {
-    const p = periods(record);
-    return (
-      p && {
-        accountId: record.accountId,
-        serviceName: record.focusService,
-        startDate: periodStart(p.current),
-        endDate: periodEnd(p.current)
-      }
-    );
-  },
-
-  // Run per metered service, since the conclusion is invoice-wide.
-  check_duplicate_usage: (record, service) => {
-    const p = periods(record);
-    return (
-      p && {
-        accountId: record.accountId,
-        serviceName: service ?? record.focusService,
-        startDate: periodStart(p.current),
-        endDate: periodEnd(p.current)
-      }
-    );
-  },
-
-  get_price_versions: (record, service) => {
-    const p = periods(record);
-    return (
-      p && {
-        accountId: record.accountId,
-        serviceName: service ?? record.focusService,
-        startDate: periodStart(p.comparison),
-        endDate: periodEnd(p.current)
-      }
-    );
-  },
-
-  get_account_events: (record) => {
-    // Only meaningful once a change point exists to anchor the window.
-    if (!periods(record) || !record.facts.change_date) return null;
-    const anchor = Date.parse(`${record.facts.change_date}T00:00:00Z`);
-    return {
-      accountId: record.accountId,
-      startTimestamp: new Date(anchor - 86_400_000).toISOString(),
-      endTimestamp: new Date(anchor + 86_400_000).toISOString()
-    };
-  },
-
-  reconcile_invoice: (record) => {
-    const p = periods(record);
-    return p && { accountId: record.accountId, period: p.current };
-  }
-};
-
-/**
- * Both periods, or null. Returning them rather than a boolean is what lets the
- * builders below drop their non-null assertions.
- */
-function periods(
-  record: InvestigationRecord
-): { current: BillingPeriod; comparison: BillingPeriod } | null {
-  return record.currentPeriod && record.comparisonPeriod
-    ? { current: record.currentPeriod, comparison: record.comparisonPeriod }
-    : null;
-}
-
-function inputFor<N extends ToolName>(
-  tool: N,
-  record: InvestigationRecord,
-  service?: string
-): ToolInput<N> | null {
-  return (INPUT_BUILDERS[tool] as InputBuilder<N>)(record, service) || null;
 }
 
 /**
