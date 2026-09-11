@@ -3,8 +3,10 @@
 Tracks execution of `docs/BUILD_PLAN.md`. Update this file as part of every milestone-advancing
 change — a stale status file is a defect.
 
-**Last updated:** 2026-09-09
-**Phase:** All five milestones complete. P0 done.
+**Last updated:** 2026-09-11
+**Phase:** All five milestones complete. **P0 closed** — all twenty-one PRD §24
+boxes verified and the §20.5 manual acceptance test passed against the deployed
+URL on 2026-09-11, version `5db38484-a5b0-4d53-8110-a23af3020305`.
 
 **Deployed:** https://billing-investigator.om-bhatt.workers.dev
 
@@ -31,37 +33,63 @@ Resolve before or during Milestone 1. Record every outcome in `ARCHITECTURE.md`.
 | ID | Question | Timebox | Blocks | Status | Outcome |
 |---|---|---|---|---|---|
 | S1 | Llama 3.3 multi-turn tool-calling fidelity | 4h | M4 | `complete` | Works via `generateText`. **`streamText` is broken** — see the provider defect below |
-| S2 | Structured output via `response_format` | 3h | M4 | `pending` | — |
-| S3 | Agents SDK API shape and version pin | 4h | M4 | `complete` | `agents@0.22.0`; `AIChatAgent` from `@cloudflare/ai-chat`; `workers-ai-provider` + `ai` v6 `streamText` |
+| S2 | Structured output via `response_format` | 3h | M4 | `complete` | Not usable: `response_format` is undocumented for this model. Resolved instead by asking for JSON in the prompt, recovering the first object with `extractJson`, then parsing it with zod — so a malformed reply fails closed. See §31 |
+| S3 | Agents SDK API shape and version pin | 4h | M4 | `complete` | `agents@0.22.0`; `AIChatAgent` from `@cloudflare/ai-chat`; `workers-ai-provider` + `ai` v6 `generateText` (`streamText` is defective — see S1) |
 | S4 | DO SQLite class + state strategy | 2h | M1 | `complete` | `new_sqlite_classes`; runtime reports `use_sqlite: true` |
 | S5 | Test harness with D1/DO bindings | 4h | M2, M3 | `complete` | `cloudflareTest()` plugin (not `defineWorkersConfig`), vitest `^4.1.0`, `remoteBindings: false` |
-| S6 | 24k context budget | 2h | M4 | `pending` | `maxOutputTokens` set explicitly at 1024 in `src/server.ts` |
+| S6 | 24k context budget | 2h | M4 | `complete` | `maxOutputTokens` set explicitly on every call in `src/agent/workersAiClient.ts` — 400 for JSON, 700 for prose. Tools return compact aggregates; full time series reach the UI as evidence and never enter the prompt |
 
 ---
 
 ## PRD §24 definition of done
 
-- [ ] Application is deployed and reachable
-- [ ] Workers AI uses Llama 3.3 by default
-- [ ] Agents SDK / Durable Object preserves session state
-- [ ] D1 contains reproducible synthetic data
-- [ ] Suggested prompt launches the complete golden investigation
-- [ ] The agent calls bounded, typed, read-only tools
-- [ ] Financial calculations are deterministic and tested
-- [ ] The $4,820 variance is explained completely and correctly
-- [ ] August 14 and `dep-1842` are identified as correlated
-- [ ] Price is correctly reported as unchanged
-- [ ] Duplicate check returns none
-- [ ] Reconciliation passes at every boundary
-- [ ] The final confidence is High
-- [ ] Evidence is visible for every material claim
-- [ ] Refresh restores the investigation
-- [ ] Follow-up questions use persisted context
-- [ ] No chain-of-thought is shown
-- [ ] Synthetic data is clearly disclosed
-- [ ] Tests, lint, typecheck, and build pass
-- [ ] README, architecture, and prompt history are complete
-- [ ] Repository and client bundle contain no credentials
+All twenty-one verified against version `5db38484-a5b0-4d53-8110-a23af3020305`
+on 2026-09-11. Evidence is the check that was actually run, not the intent.
+
+- [x] Application is deployed and reachable — https://billing-investigator.om-bhatt.workers.dev, `HTTP 200` on `/` and `/api/accounts/abc123`
+- [x] Workers AI uses Llama 3.3 by default — `DEFAULT_MODEL_ID` in `src/server.ts`, `vars.MODEL_ID` in `wrangler.jsonc`, both `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; shown in the deploy's binding table
+- [x] Agents SDK / Durable Object preserves session state — refresh restored conversation, plan, 21 evidence cards and summary (§20.5 step 6)
+- [x] D1 contains reproducible synthetic data — `npm run seed:build` twice, byte-identical (`shasum 2533052736db…`); remote D1 holds 3 invoices, 276 daily rows, 4,508 events, 2 price versions
+- [x] Suggested prompt launches the complete golden investigation — 11 of 11 steps completed on the deployed URL
+- [x] The agent calls bounded, typed, read-only tools — 11 calls against a 12-call budget; allowlist in `src/tools/catalog.ts`; `sqlSafety.spec.ts` proves the read path contains no write statement
+- [x] Financial calculations are deterministic and tested — all money in `src/domain/`, purity enforced by `domainPurity.spec.ts`; 508 tests green
+- [x] The $4,820 variance is explained completely and correctly — production summary: $16,900.00 → $21,720.00, $4,820.00 (28.5%), 100.00% explained
+- [x] August 14 and `dep-1842` are identified as correlated — reported as `correlated`, with "This is a temporal correlation, not proof of cause." carried in the evidence card
+- [x] Price is correctly reported as unchanged — PRICE CHANGED `no`, checked once per metered service (Workers, Workers AI)
+- [x] Duplicate check returns none — 0 exact, 0 probable, from checks that ran on both metered services
+- [x] Reconciliation passes at every boundary — RECONCILIATION `passed`; "Raw usage, rated charges and invoice lines reconcile to the cent."
+- [x] The final confidence is High — `Confidence: high`, computed by `src/domain/confidence.ts`
+- [x] Evidence is visible for every material claim — each card carries SOURCE (tool) and RECORDS (source record ids)
+- [x] Refresh restores the investigation — §20.5 step 6
+- [x] Follow-up questions use persisted context — "Could the usage have been duplicated?" answered from the stored checks (1,488 and 31 events) with the plan still at 11: no new tool calls
+- [x] No chain-of-thought is shown — plan renders friendly action labels only; the model's `reason` is deliberately never persisted (`src/agent/loop.ts`)
+- [x] Synthetic data is clearly disclosed — header badge, footer, and README
+- [x] Tests, lint, typecheck, and build pass — 508 tests in 34 files; `tsc --noEmit`, `oxlint`, `vite build` all clean
+- [x] README, architecture, and prompt history are complete — 224 / 1463 / 1315 lines, live demo URL in the README
+- [x] Repository and client bundle contain no credentials — no secret-shaped assignment in any tracked non-doc file; `.dev.vars`/`.env` gitignored and untracked; client bundle scan finds only `cf_agent_*` SDK message constants
+
+---
+
+## PRD §20.5 manual acceptance test
+
+Run 2026-09-11 against the deployed URL, on a reset session. All nine steps passed.
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Start from a clean checkout | Deployed from the current tree |
+| 2 | Apply migrations and seed using README commands | Remote D1 migrated and seeded; README §Quick start commands used verbatim |
+| 3 | Open the application | Loads, account header populated from D1, socket `Connected` |
+| 4 | Run the suggested investigation | 11 of 11 steps, golden fact block exact |
+| 5 | Inspect every plan step and evidence card | 11 steps all `Completed`; 21 cards, each with SOURCE and RECORDS |
+| 6 | Refresh and confirm state restoration | Conversation, plan, evidence and summary all restored |
+| 7 | Ask "Could the usage have been duplicated?" | Answered without new tool calls |
+| 8 | Confirm the answer references the existing duplicate check | Cites 0 exact / 0 probable across 1,488 and 31 events — the two per-service checks |
+| 9 | Reset and confirm seeded billing data unchanged | Counts identical before and after: 3 invoices, 276 daily rows, 4,508 events, 2 price versions, August 2172000 |
+
+One thing the run surfaced: the deployed demo still held a prior session's
+investigation (a 2026-06 vs 2026-08 comparison from earlier manual testing),
+because the session id lives in the browser's `localStorage` and outlives a
+deploy. Reset clears it. Worth knowing before demoing to anyone.
 
 ---
 
@@ -115,7 +143,7 @@ caches identical calls within an investigation (FR-5). Failures are not cached,
 so a transient error stays retryable. Argument order does not create a second
 cache entry.
 
-**Runner** (`src/tools/investigationRunner.ts`): executes the nine-step playbook
+**Runner** (`src/agent/deterministicRun.ts`): executes the nine-step playbook
 against D1 with no model. `npm run investigate` runs it.
 
 ### What the tool tests actually prove
@@ -223,7 +251,7 @@ change point.
 | Decision | Resolved by | Status |
 |---|---|---|
 | Subclass `AIChatAgent` vs `Agent` | S3 | `AIChatAgent` — free DO-backed message persistence |
-| Raw `env.AI.run` vs `workers-ai-provider` + `ai` SDK | S3 | `workers-ai-provider` + `ai` v6 `streamText` |
+| Raw `env.AI.run` vs `workers-ai-provider` + `ai` SDK | S3 | `workers-ai-provider` + `ai` v6. `generateText`, not `streamText` — see the provider defect below |
 | Investigation state in `setState()` vs `this.sql` | S4 | `setState` for the record, `this.sql` for the tool-execution audit trail |
 | Golden E2E in Workers pool vs Node-side driver | S5 | Workers pool; D1 bindings declared in `vitest.config.ts` |
 
@@ -376,10 +404,13 @@ deployment commands included in both the README and the final report.
 - ~~The model infers `abc123` from a `.describe()` example.~~ Resolved in M4: the
   server builds every tool input from the investigation record, and a
   model-supplied account id is ignored.
-- `SESSION_NAME` in `src/app.tsx` is still a fixed constant, so every visitor to
-  the deployed URL shares one investigation. M5 should key it per investigation.
-- The UI still renders one message column. Plan, Evidence and Summary tabs
-  (PRD §8.1) are M5; the data they need is already on the synced record.
+- ~~`SESSION_NAME` in `src/app.tsx` is still a fixed constant, so every visitor to
+  the deployed URL shares one investigation.~~ Resolved in M5: `src/ui/session.ts`
+  mints a per-browser id into `localStorage` and validates it on the way back
+  out, since it becomes the Durable Object instance id. Invariant 26.
+- ~~The UI still renders one message column. Plan, Evidence and Summary tabs
+  (PRD §8.1) are M5.~~ Resolved in M5: all three tabs ship, driven off the synced
+  record.
 
 ---
 
@@ -410,3 +441,4 @@ deployment commands included in both the README and the final report.
 | 2026-09-10 | Added `InvestigationStore` (Durable Object + in-memory implementations) owning envelope persistence, the reusable-result cache and the generation-checked commit. Closes FR-12 "tool calls and results" and FR-5 "cached persisted result", both previously half met. 489 tests. |
 | 2026-09-11 | Code-organization review. `facts.ts` moved from `src/tools/` to `src/agent/`, where its only eight consumers are. Domain purity gained a static check (`test/unit/domainPurity.spec.ts`): no import resolving outside `src/domain/`, and no reference to an ambient Cloudflare global — the hole `worker-configuration.d.ts` leaves open, since it declares `D1Database` with no import to grep for. Mutation-checked five ways. 499 tests. |
 | 2026-09-11 | Tool-argument construction extracted from the coordinator to `src/agent/toolInputs.ts`; loop.ts 561 -> 431 lines. The builders are now reachable without running a turn against D1, so the event window's anchor, the price window's span and the per-service argument are asserted where they are chosen. Every built input is also parsed by its own tool's zod schema, which the compiler cannot check. Mutation-checked seven ways. 508 tests. |
+| 2026-09-11 | **P0 closed.** Deployed the current tree (version `5db38484`), then ran PRD §20.5 against the deployed URL: all nine steps passed, golden fact block exact in production, seeded billing data identical before and after Reset. All twenty-one §24 boxes checked with the evidence that was actually run. Corrected four stale rows this file still carried — spikes S2 and S6 were resolved in code but left `pending` (S6's note named the wrong file and figure), the S3/Open-decisions rows still said `streamText`, and two "known gaps" had been fixed in M5. Recorded the `response_format` deviation in `ARCHITECTURE.md` §31, per rule 20. 508 tests. |

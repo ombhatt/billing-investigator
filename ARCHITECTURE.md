@@ -1331,6 +1331,7 @@ Mutation-checked three ways: reverting the guard to a yearless read fails two;
 excluding `"may"` again fails two; and matching `"may"` everywhere — the naive
 over-fix — also fails two, which is what pins the rule to the narrow form rather
 than to "detect May".
+
 ---
 
 ## 29. Addendum: the layer whose rule had no test
@@ -1461,3 +1462,33 @@ and a cast past the compiler producing a malformed period. That last one fails
 only the schema check, and it typechecks clean — which is the case that check
 exists for.
 
+---
+
+## 31. Addendum: structured output without `response_format`
+
+Spike S2 asked whether the model could be pinned to a JSON shape by the
+provider. It cannot: `response_format` is undocumented for
+`@cf/meta/llama-3.3-70b-instruct-fp8-fast`, so there is no supported way to make
+the runtime enforce a schema.
+
+This is a deviation from the PRD's assumption, recorded here per rule 20. It was
+resolved in `src/agent/workersAiClient.ts` rather than worked around:
+
+1. The prompt states the exact JSON shape expected.
+2. `extractJson` recovers the first `{…}` from the reply, unwrapping a fenced
+   block if there is one — the model often narrates around its JSON.
+3. The result is parsed by a zod schema (`classificationSchema`,
+   `planUpdateSchema`), never trusted as-is.
+
+The third step is what makes the first two safe. A reply that is malformed,
+truncated, or confidently wrong about its own shape fails the parse, and both
+call sites already treat that as a normal outcome: classification falls back to
+asking for clarification, and planning falls back to running every remaining
+conditional tool. Unknown fields are ignored and unknown tool names dropped
+(PRD §10.7), so the model cannot widen its own surface by inventing keys.
+
+The same reasoning covers S6. There is no token-budget enforcement to inherit
+either, so `maxOutputTokens` is set explicitly on every call — 400 for JSON, 700
+for prose — rather than relying on the provider's 256 default. Tools return
+compact aggregates; full time series reach the UI as structured evidence and
+never enter the prompt.

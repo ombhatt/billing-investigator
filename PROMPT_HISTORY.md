@@ -1313,3 +1313,52 @@ record through each other, so splitting them buys indirection, not isolation.
 
 508 tests, up from 499. Golden facts unchanged. Reasoning in `ARCHITECTURE.md`
 §30.
+
+### Closing P0
+
+Asked to close P0. Definition: all twenty-one boxes in PRD §24 checked, and the
+§20.5 manual acceptance test passing against the deployed URL.
+
+Most of the twenty-one were already true and simply unverified — nothing in
+`docs/BUILD_STATUS.md` was ticked. Confirmed each with a check actually run
+rather than by reading the code: seed byte-identity across two `seed:build`
+runs, the model-ID default in both `server.ts` and `wrangler.jsonc`, a
+secret-shaped-assignment scan over tracked files and the client bundle, the
+Llama binding in the deploy's own binding table.
+
+The live demo was serving a build from 03:55 UTC, before this session's
+refactors, so §20.5 would have signed off code that was not in the repo.
+Deployed the current tree first (version `5db38484`), then ran the acceptance
+test once against it. Remote D1 was already migrated and correctly seeded, so it
+was left alone rather than re-seeded — a remote re-seed is a destructive write
+with nothing to gain.
+
+All nine §20.5 steps passed. The golden block is exact in production:
+$16,900.00 → $21,720.00, $4,820.00 (28.5%), price unchanged, 2026-08-14
+correlated with dep-1842, 0/0 duplicates, reconciliation passed, 100.00%
+explained, confidence high. Refresh restored plan, 21 evidence cards and
+summary. "Could the usage have been duplicated?" answered from the stored
+per-service checks — 1,488 and 31 events — with the plan still at 11, so no new
+tool calls. After Reset the seeded data was identical: 3 invoices, 276 daily
+rows, 4,508 events, 2 price versions, August still 2172000.
+
+One thing the run surfaced, worth knowing before a live demo: the deployed
+session had a prior investigation still in it (a 2026-06 vs 2026-08 comparison
+from earlier manual testing), because the session id lives in the browser's
+`localStorage` and outlives a deploy. Reset clears it.
+
+The file meant to track all this was itself the least accurate thing in the
+repo, which is the finding worth keeping. Four stale entries: spikes S2 and S6
+sat at `pending` though both had been resolved in code, and S6's note named the
+wrong file and the wrong number (`1024 in src/server.ts`; actually 400 and 700
+in `workersAiClient.ts`); the S3 and Open-decisions rows still said `streamText`
+after the switch to `generateText`; and two "known gaps" describing a shared
+`SESSION_NAME` and a single-column UI had both been fixed in M5. The header had
+claimed "P0 done" since 2026-09-09 while every box below it was unchecked.
+
+S2's resolution had only ever been recorded in a code comment, so it is now in
+`ARCHITECTURE.md` §31 as rule 20 requires: `response_format` is undocumented for
+this model, and the shape is held instead by prompt + `extractJson` + a zod
+parse that fails closed.
+
+508 tests. Golden facts unchanged.
