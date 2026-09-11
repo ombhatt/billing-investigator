@@ -315,6 +315,50 @@ describe("a question naming months the account does not have is challenged", () 
  * often in this domain — so a question naming it without a year is caught by
  * the other month it names, and by the model's own answer.
  */
+/**
+ * Found by hand against the deployed app, and the reason the test below it was
+ * not enough. Asked "Why did the May invoice jump?", the agent investigated
+ * 2026-07 against 2026-08 and answered "The May invoice jumped by $4,820.00" —
+ * August's figures under May's name.
+ *
+ * Two checks were meant to stop that and neither could see the word. The
+ * availability check reads the reader's text, and "may" was excluded from bare
+ * month matching as a verb; the narrative guard reads the model's prose, and
+ * read it with no year to assume, which excluded every bare month. The month
+ * named in the question was the one month both were blind to.
+ */
+describe("a question about a month the account lacks is not answered about another", () => {
+  it("challenges 'the May invoice' rather than investigating August", async () => {
+    // The model answers with the newest available pair, as the live one did.
+    const model = new ReplyModel([{}]);
+    const record = await runInvestigationTurn(
+      fresh(),
+      "Why did the May invoice jump?",
+      deps(model)
+    );
+
+    expect(record.state).toBe("clarification_required");
+    expect(record.clarificationQuestion).toContain("2026-05");
+    expect(record.currentPeriod).toBeNull();
+    expect(record.summary).toBeNull();
+  });
+
+  it("does not challenge a question that merely uses 'may' as a verb", async () => {
+    // The control. Excluding "may" outright was one way to pass the test above
+    // and would break every ordinary question containing the word.
+    const model = new ReplyModel([{}]);
+    const record = await runInvestigationTurn(
+      fresh(),
+      "Usage may have risen — why is August higher than July?",
+      deps(model)
+    );
+
+    expect(record.state).not.toBe("clarification_required");
+    expect(record.currentPeriod).toBe("2026-08");
+    expect(record.comparisonPeriod).toBe("2026-07");
+  });
+});
+
 describe("a bare month name the reader did not qualify", () => {
   it("still declines, on the month it can resolve", async () => {
     const model = new ReplyModel([

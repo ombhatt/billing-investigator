@@ -1265,3 +1265,69 @@ covers every allowlisted tool, guarded by a test asserting that a valid-input
 fixture exists for each. The two largest test files were checked for overlapping
 coverage and have none — `agent.spec.ts` holds eleven distinct guarantees and
 `tools.spec.ts` eight, each traceable to a separate finding.
+
+## 28. Addendum: the one month both guards were blind to
+
+Found by hand against the deployed app. Asked **"Why did the May invoice
+jump?"** on an account holding 2026-06, 2026-07 and 2026-08, the agent
+investigated July against August and answered:
+
+> "The May invoice jumped by $4,820.00, a 28.5% increase…"
+
+Every figure real, reconciliation genuinely passing, confidence genuinely high —
+and the invoice it named does not exist. Exactly what §20 and rule 25 exist to
+prevent, reaching production anyway.
+
+### Two checks, one shared blind spot
+
+Both defences call `periodsMentioned`, and each was defeated differently.
+
+**The availability check** reads the reader's question and challenges a period
+the account lacks. It could not see the word: `"may"` was excluded from
+bare-month matching outright, on the reasoning that it is a common verb and
+reading "this may indicate" as a period would be worse than missing a genuine
+one. Sound for that direction, taken alone.
+
+**The narrative guard** reads the model's prose and rejects any month that was
+not investigated. It called `periodsMentioned(prose)` with no year to assume —
+so `BARE_MONTH` never ran and *no* bare month name was checked at all. "The June
+invoice" and "The August invoice" were equally invisible; only `2026-05` or
+"May 2026" ever reached the comparison. This was the larger hole, and it had no
+trade-off behind it: the call site already receives the investigated periods, so
+the year was available all along.
+
+The question named the one month the first check was blind to, and the prose
+repeated it in the one form the second was blind to.
+
+### The fix
+
+`periodsMentionedWithin(text, known)` infers an omitted year from periods the
+caller already knows, and is now the single implementation behind both the
+guard and `periodsNamed`. The guard passes the investigated periods; period
+resolution passes the account's invoices.
+
+`"may"` is no longer excluded outright but read by the company it keeps: a month
+when it sits against a billing noun behind a determiner or preposition ("the May
+invoice", "charges for May", "the month of May"), a verb everywhere else ("we
+may bill you", "usage may have risen", "charges may not reflect the contract").
+The verb sense puts a bare verb after `may` and a subject before it; the month
+sense does neither.
+
+### Why nothing failed
+
+Every existing guard test spelled the month **with a year beside it** — "The May
+2026 invoice jumped compared to April 2026", the sentence production had
+actually produced. That is the one form the parser could already see, so the
+suite verified the check in the case where its input worked and never in the
+case where its input was empty. The same shape as §12 and §21: a guarantee
+tested present-and-wrong, never absent.
+
+The `periodsMentioned` suite did assert the "may" exclusion, under the name
+`"never reads a bare 'may' as a month"` — a test that documented the gap as
+though it were the requirement. It is rewritten to state the rule the code now
+holds.
+
+Mutation-checked three ways: reverting the guard to a yearless read fails two;
+excluding `"may"` again fails two; and matching `"may"` everywhere — the naive
+over-fix — also fails two, which is what pins the rule to the narrow form rather
+than to "detect May".

@@ -1190,3 +1190,38 @@ averaging 153 lines it is not the "dozens of one-function files" being warned
 against.
 
 489 tests, unchanged. Golden facts unchanged.
+
+### Manual verification — "Why did the May invoice jump?"
+
+Found while verifying a deploy in the browser, not by a failing test.
+
+The account holds 2026-06 through 2026-08. Asked about May, the agent
+investigated July against August and reported "The May invoice jumped by
+$4,820.00, a 28.5% increase." Real figures, real reconciliation, high
+confidence, wrong invoice.
+
+Two separate guards should each have stopped it, and each failed for its own
+reason. The availability check could not see "may" — it was excluded from
+bare-month matching as a verb. The narrative guard read the model's prose with
+no year to assume, which made *every* bare month name invisible, not just May;
+it only ever caught "2026-05" or "May 2026". The question named the one month
+the first was blind to, and the prose repeated it in the one form the second was
+blind to.
+
+Fixed both. One shared `periodsMentionedWithin` behind the guard and period
+resolution, and "may" read by the company it keeps — a month against a billing
+noun behind a determiner or preposition, a verb everywhere else.
+
+The instructive part is why the suite was green. Every guard test spelled the
+month with a year beside it, because they were written from the sentence
+production had produced. They verified the check in the case where its input
+worked and never in the case where its input was empty — the same shape as the
+findings in §12 and §21. And the `periodsMentioned` suite asserted the "may"
+exclusion under the name "never reads a bare 'may' as a month", a test that had
+written the gap down as though it were the requirement.
+
+Mutation-checked three ways, including the naive over-fix of matching "may"
+everywhere, which fails two tests — that is what holds the rule to the narrow
+form instead of to "detect May".
+
+496 tests, up from 489. Golden facts unchanged.

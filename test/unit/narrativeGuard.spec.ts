@@ -270,9 +270,51 @@ describe("prose may not name a period that was not investigated", () => {
     ).toBe(true);
   });
 
+  /**
+   * Every case above spells the month with a year beside it, which is the one
+   * form the parser could already see. Production wrote "The May invoice
+   * jumped by $4,820.00" over August's data and this guard raised nothing: the
+   * prose was read with no year to assume, so no bare month name reached the
+   * check at all. The figure was real; the invoice it named was not.
+   */
+  it("rejects a bare month name, not only one spelled with a year", () => {
+    const result = checkNarrative(
+      "The May invoice jumped by $4,820.00, a 28.5% increase.",
+      { ...context, ...investigated }
+    );
+
+    expect(result.ok).toBe(false);
+    expect(
+      result.violations.filter((v) => v.kind === "unknown_period").map((v) => v.value)
+    ).toEqual(["2026-05"]);
+  });
+
+  it("rejects every bare month, not just the one that was reported", () => {
+    // The defect was in how prose is parsed, not in the word "May". June is
+    // equally invisible to a check that never infers a year.
+    const result = checkNarrative("The June invoice jumped by $4,820.00.", {
+      ...context,
+      ...investigated
+    });
+    expect(
+      result.violations.filter((v) => v.kind === "unknown_period").map((v) => v.value)
+    ).toEqual(["2026-06"]);
+  });
+
+  it("still accepts a bare month that was investigated", () => {
+    // The control: inferring the year must not make every month a violation.
+    expect(
+      checkNarrative("The August invoice is higher than the July invoice.", {
+        ...context,
+        ...investigated
+      }).ok
+    ).toBe(true);
+  });
+
   it("does not read the word 'may' as a month", () => {
     const result = checkNarrative(
-      "This may indicate a deployment change; usage may have risen.",
+      "This may indicate a deployment change; usage may have risen. " +
+        "We may bill you separately, and charges may not reflect the contract.",
       { ...context, ...investigated }
     );
     expect(result.violations.filter((v) => v.kind === "unknown_period")).toEqual([]);

@@ -75,13 +75,43 @@ describe("a bare month, resolved against a known year", () => {
     expect(periodsMentioned("what about the month of June?")).toEqual([]);
   });
 
-  it("never reads a bare 'may' as a month, even with a year supplied", () => {
-    // "may" is a verb far more often than a month in this domain. Missing a
-    // genuine bare "may" is the cheaper mistake.
-    expect(periodsMentioned("this may indicate a deployment change", 2026)).toEqual([]);
-    expect(periodsMentioned("usage may have risen", 2026)).toEqual([]);
-    // Still found when the year is explicit.
+  /**
+   * "may" was excluded from bare-month matching outright, which was the safe
+   * half of one trade-off and the unsafe half of another: it also meant "the
+   * May invoice jumped" was invisible, both when a reader asked it and when the
+   * model wrote it over a different month's figures.
+   *
+   * What separates the two senses is the company the word keeps.
+   */
+  it("reads 'may' as a month when it sits against a billing noun", () => {
+    for (const text of [
+      "why did the May invoice jump?",
+      "May charges were higher",
+      "the charges for May",
+      "billing for the month of May",
+      "May's invoice total"
+    ]) {
+      expect(periodsMentioned(text, 2026)).toContain("2026-05");
+    }
+  });
+
+  it("reads 'may' as a verb everywhere else", () => {
+    for (const text of [
+      "this may indicate a deployment change",
+      "usage may have risen",
+      "we may bill you separately for overages",
+      "the invoice may be correct",
+      "charges may not reflect the new contract",
+      "that may well explain the variance"
+    ]) {
+      expect(periodsMentioned(text, 2026)).toEqual([]);
+    }
+  });
+
+  it("still finds May when the year is explicit", () => {
     expect(periodsMentioned("what about May 2026?", 2026)).toEqual(["2026-05"]);
+    // And with no year to assume, a bare month stays out.
+    expect(periodsMentioned("why did the May invoice jump?")).toEqual([]);
   });
 
   it("prefers an explicit year over the assumed one", () => {

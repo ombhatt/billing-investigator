@@ -64,12 +64,40 @@ const BARE_PERIOD = /\b\d{4}-(?:0[1-9]|1[0-2])\b(?!-\d)/g;
 /**
  * A month named with no year — "billing for the month of June".
  *
- * "may" is deliberately absent: it is a common verb, and reading "this may
- * indicate" as a period would be worse than missing a genuine "may". It is
- * still recognised when a year sits beside it, via NAMED_MONTH above.
+ * "may" is absent here and handled separately below: on its own it is far more
+ * often a verb than a month.
  */
 const BARE_MONTH = new RegExp(
   `\\b(${MONTH_NAMES.filter((m) => m !== "may").join("|")})\\b`,
+  "gi"
+);
+
+/** Nouns that make a neighbouring month name a billing period. */
+const BILLING_NOUN = "invoices?|billing|bills?|usage|periods?|charges?|statements?|totals?|spend";
+
+/**
+ * "may" read as a month rather than a verb.
+ *
+ * Excluding it wholesale was the safe half of a trade-off and the unsafe half
+ * of another: "this may indicate" must not become a period, but "the May
+ * invoice jumped" is a claim about an invoice and has to be seen — both when a
+ * reader asks it and when the model writes it.
+ *
+ * The separator is what distinguishes the two. As a month, "may" sits against a
+ * billing noun and behind a determiner or preposition ("the May invoice",
+ * "charges for May"). As a verb it sits against a bare verb and behind a
+ * subject ("we may bill you", "usage may have risen"), which none of these
+ * match.
+ */
+const MAY_AS_MONTH = new RegExp(
+  [
+    // "the May invoice", "in May usage", sentence-initial "May charges"
+    `(?:^|[.,;:]\\s*|\\b(?:the|this|last|next|in|for|of|during|since|from|to|versus|vs\\.?)\\s+)may(?:'s|\u2019s)?\\s+(?:${BILLING_NOUN})\\b`,
+    // "charges for May", "invoice in May"
+    `\\b(?:${BILLING_NOUN})\\s+(?:for|in|of|during)\\s+(?:the\\s+month\\s+of\\s+)?may\\b`,
+    // "the month of May"
+    `\\bmonth\\s+of\\s+may\\b`
+  ].join("|"),
   "gi"
 );
 
@@ -108,7 +136,31 @@ export function periodsMentioned(
         asPeriod(assumeYear, MONTH_NAMES.indexOf(match[1].toLowerCase()) + 1)
       );
     }
+    // May is the fifth month; the regex proves it is being used as one.
+    if (MAY_AS_MONTH.test(text)) found.add(asPeriod(assumeYear, 5));
+    MAY_AS_MONTH.lastIndex = 0;
   }
 
+  return [...found].sort();
+}
+
+/**
+ * Every period a text refers to, inferring an omitted year from periods the
+ * caller already knows about.
+ *
+ * Both callers need this and for the same reason: a question naming a month the
+ * account does not have must be challenged, and prose naming a month that was
+ * never investigated is a fabricated claim. Only years in `known` are tried, so
+ * an omitted year can never invent a period out of range.
+ */
+export function periodsMentionedWithin(
+  text: string,
+  known: readonly string[]
+): Period[] {
+  const years = [...new Set(known.map((p) => Number(p.slice(0, 4))))];
+  const found = new Set<Period>(periodsMentioned(text));
+  for (const year of years) {
+    for (const period of periodsMentioned(text, year)) found.add(period);
+  }
   return [...found].sort();
 }

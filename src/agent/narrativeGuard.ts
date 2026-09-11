@@ -1,5 +1,5 @@
 import { formatUsd } from "../domain/money.js";
-import { periodsMentioned } from "../domain/period.js";
+import { periodsMentionedWithin } from "../domain/period.js";
 import type { EvidenceCard } from "../types/tools.js";
 import type { InvestigationFacts } from "../tools/facts.js";
 
@@ -160,14 +160,16 @@ export function checkNarrative(
 
   // Which months the answer is *about*, not just the digits in it.
   //
-  // Every figure can be correct and the answer still be wrong. Production
-  // returned "The May 2026 invoice jumped by $4,820.00 compared to April 2026"
-  // over August and July's data: no amount was fabricated, so nothing above
-  // objected, and the sentence was false in the one way that matters most —
-  // it named the wrong invoice.
+  // Every figure can be correct and the answer still be wrong: "The May invoice
+  // jumped by $4,820.00" over August's data fabricates nothing above and is
+  // false in the one way that matters most — it names the wrong invoice.
+  //
+  // The year is inferred from the periods investigated, so a bare "the May
+  // invoice" is caught and not only "May 2026". Reading the prose without a
+  // year to assume made every bare month name invisible here.
   if (context.periods && context.periods.length > 0) {
     const investigated = new Set(context.periods);
-    for (const period of periodsMentioned(prose)) {
+    for (const period of periodsMentionedWithin(prose, context.periods)) {
       if (!investigated.has(period)) {
         violations.push({ kind: "unknown_period", value: period });
       }

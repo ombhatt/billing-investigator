@@ -1,4 +1,4 @@
-import { periodsMentioned } from "../domain/period.js";
+import { periodsMentionedWithin } from "../domain/period.js";
 import { billingPeriod, type BillingPeriod } from "../domain/units.js";
 import { isFailure } from "../types/tools.js";
 import type { CaseClassification, ModelClient } from "./modelClient.js";
@@ -23,20 +23,13 @@ function listPeriods(periods: string[]): string {
 }
 
 /**
- * Billing periods a piece of user text names.
- *
- * The year is inferred from the account's own invoices where the text omits
- * one, because "August versus July" is how the question is actually asked. Only
- * years the account has invoices in are tried, so an omitted year can never
- * invent a period out of range.
+ * Billing periods a piece of user text names, with an omitted year inferred
+ * from the account's own invoices — "August versus July" is how the question is
+ * actually asked. Shares its implementation with the narrative guard, which
+ * asks the same question of the model's prose.
  */
 export function periodsNamed(text: string, available: string[]): BillingPeriod[] {
-  const years = [...new Set(available.map((p) => Number(p.slice(0, 4))))];
-  const found = new Set<BillingPeriod>(periodsMentioned(text));
-  for (const year of years) {
-    for (const period of periodsMentioned(text, year)) found.add(period);
-  }
-  return [...found].sort();
+  return periodsMentionedWithin(text, available) as BillingPeriod[];
 }
 
 /** Reads as one request: the reply alone does not say what was being asked. */
