@@ -947,3 +947,50 @@ Mutation-checked two ways. Annotating the catalog back to
 `varianceCents` in the compare tool's output now flags `src/tools/facts.ts` and
 `src/agent/loop.ts` — the two consumers that previously held casts and would have
 gone on reading `undefined`.
+
+## 23. Addendum: splitting the coordinator
+
+`loop.ts` had grown to 879 lines owning period interpretation, clarification,
+tool arguments, retries, budget accounting, service expansion, fact updates,
+planning and synthesis. The line count was a symptom; the independent reasons to
+change were the problem.
+
+| Module | Owns | Changes when |
+|---|---|---|
+| `periodResolution.ts` | Reading a request, clarification, which periods | how a question is interpreted |
+| `toolExecution.ts` | Budget, retries, execution accounting | the limits or the retry rule |
+| `resultReducer.ts` | What a result means for the record | a tool's output or a fact |
+| `loop.ts` | Sequencing, planning cycles, completion | the playbook |
+
+Three of the eleven review findings and all three defects found in manual use
+were in period interpretation. It now has its own module and its own tests, and
+none of them needs a database or a playbook to reproduce.
+
+### The budget was counted in two places
+
+The reviewer noticed that classification called the runner directly while
+`callTool` kept the metrics. Probing it: a golden turn **executed twelve tools
+and reported eleven**. The twelve-call bound could be exceeded by exactly the
+call nobody was watching — a limit enforced on one path is not a limit.
+
+`ToolExecutor` is now the only thing that calls the runner, so every call is
+counted once. The classification read is inside the total, and a retry is
+charged as the tool call it is — including refusing to retry past the limit.
+
+One deliberate decision: **cache hits are recorded but do not consume budget.**
+The bound caps work against D1 and time spent in a turn, and a cache hit is
+neither; charging it would let a repeat of an already-answered question eat the
+allowance. The golden turn now reports 11 calls and 1 cache hit against 12
+executions, and the three numbers finally explain each other.
+
+The executor is seeded from the record's metrics rather than starting fresh, so
+a turn resumed after a clarification cannot buy itself a new allowance. That
+preserves the previous behaviour exactly — a refactor should not quietly change
+what a limit means.
+
+### Validation
+
+`test/unit/toolExecution.spec.ts` tests budget and retry with a stub runner — no
+database, no playbook. `test/unit/periodResolution.spec.ts` tests every period
+rule as pure functions. The end-to-end coordinator tests are unchanged and still
+assert the golden fact block.

@@ -1,24 +1,15 @@
-import { periodEnd, periodsMentioned, periodStart } from "../domain/period.js";
+import { periodEnd, periodStart } from "../domain/period.js";
 import {
   driverService,
   meteredServiceNames,
   type ServiceCandidate
 } from "../domain/servicePolicy.js";
-import { applyToolFacts, emptyFacts } from "../tools/facts.js";
+import { emptyFacts } from "../tools/facts.js";
 import { isAllowedTool } from "../tools/registry.js";
-import type {
-  ToolInput,
-  ToolName,
-  ToolOutput,
-  ToolRunner
-} from "../tools/registry.js";
-import { isFailure, type ToolResult } from "../types/tools.js";
+import type { ToolInput, ToolName, ToolRunner } from "../tools/registry.js";
+
 import { applicableDiagnostics, assessCompletion } from "./completion.js";
-import type {
-  CaseClassification,
-  ModelClient,
-  PlanUpdate
-} from "./modelClient.js";
+import type { ModelClient, PlanUpdate } from "./modelClient.js";
 import { planUpdateSchema } from "./modelClient.js";
 import { safeNarrative } from "./narrativeGuard.js";
 import {
@@ -28,21 +19,28 @@ import {
   isConditionalTool,
   MAX_PLANNING_CYCLES_PER_TURN,
   MAX_TOOL_CALLS_PER_TURN,
-  MAX_TOOL_RETRIES,
   REQUIRED_PRELUDE,
   REQUIRED_RECONCILIATION
 } from "./playbooks/invoiceVariance.js";
+import { classifyPeriods, clarificationContext } from "./periodResolution.js";
+import { reduceSkipped, reduceToolResult } from "./resultReducer.js";
 import { isTerminal, transition } from "./stateMachine.js";
+import { ToolExecutor } from "./toolExecution.js";
 import { deterministicSummary } from "./summary.js";
-import type {
-  InvestigationRecord,
-  PlanStep,
-  ServiceEffectSummary,
-  StepStatus
-} from "./types.js";
+import type { InvestigationRecord, PlanStep } from "./types.js";
 
 export interface LoopDeps {
   runner: ToolRunner;
+  model: ModelClient;
+  focusService: string;
+}
+
+/**
+ * What the turn passes around internally. The caller supplies a runner; the
+ * turn wraps it in the one executor that owns the budget for that turn.
+ */
+interface TurnDeps {
+  executor: ToolExecutor;
   model: ModelClient;
   focusService: string;
 }
@@ -83,17 +81,6 @@ export function newInvestigation(
 /** Steps are addressed by id, which for per-service steps includes the service. */
 export function stepId(tool: ToolName, service?: string): string {
   return service === undefined ? tool : `${tool}:${service}`;
-}
-
-function setStep(
-  plan: PlanStep[],
-  id: string,
-  status: StepStatus,
-  outcome: string | null
-): PlanStep[] {
-  return plan.map((step) =>
-    step.id === id ? { ...step, status, outcome } : step
-  );
 }
 
 /**
@@ -289,333 +276,34 @@ function inputFor<N extends ToolName>(
 }
 
 /**
- * A one-line factual outcome per step, shown to the reader. Typed per tool, so
- * it cannot summarise a field the tool stopped returning.
- */
-type Summariser<N extends ToolName> = (data: ToolOutput<N>) => string;
-
-const SUMMARISERS: { [N in ToolName]: Summariser<N> } = {
-  get_account_context: (d) => d.displayName,
-  compare_invoices: (d) => `variance ${d.varianceCents} cents`,
-  decompose_variance: (d) => `${d.explainedPercent.toFixed(2)}% explained`,
-  get_usage_timeseries: (d) => `${d.totalQuantity} units`,
-  get_price_versions: (d) => (d.priceChanged ? "price changed" : "no price change"),
-  detect_usage_change_point: (d) =>
-    d.changeDate ? `change on ${d.changeDate}` : "no change point",
-  get_account_events: (d) => `${d.events.length} events in window`,
-  check_duplicate_usage: (d) => `${d.exactCount} exact, ${d.probableCount} probable`,
-  reconcile_invoice: (d) => d.status
-};
-
-function summarise<N extends ToolName>(tool: N, data: ToolOutput<N>): string {
-  return (SUMMARISERS[tool] as Summariser<N>)(data);
-}
-
-/**
- * Executes one allowlisted tool with the server-built input, folding the
- * result into the record. Returns the record unchanged if the budget is spent.
+ * Runs one allowlisted tool and folds the result into the record.
+ *
+ * Sequencing only: the executor owns the budget and the retry, the reducer
+ * owns what the result means. What is left here is choosing the step id and
+ * the arguments.
  */
 async function callTool<N extends ToolName>(
   record: InvestigationRecord,
   tool: N,
-  deps: LoopDeps,
+  deps: TurnDeps,
   service?: string
 ): Promise<InvestigationRecord> {
   const id = stepId(tool, service);
 
-  if (record.metrics.toolCalls >= MAX_TOOL_CALLS_PER_TURN) {
-    return {
-      ...record,
-      plan: setStep(record.plan, id, "skipped", "tool-call limit reached"),
-      blockers: [...new Set([...record.blockers, "tool-call limit reached"])]
-    };
-  }
-
   const input = inputFor(tool, record, service);
   if (input === null) {
-    return {
-      ...record,
-      plan: setStep(record.plan, id, "skipped", "prerequisite data missing")
-    };
+    return reduceSkipped(record, id, "prerequisite data missing");
   }
 
-  let result: ToolResult<ToolOutput<N>> = await deps.runner.run(tool, input);
-  let attempts = 1;
-  // One retry, and only for a failure the tool itself marked retryable.
-  while (
-    isFailure(result) &&
-    result.error.retryable &&
-    attempts <= MAX_TOOL_RETRIES
-  ) {
-    result = await deps.runner.run(tool, input);
-    attempts++;
+  const outcome = await deps.executor.execute(tool, input);
+  if (outcome.result === null) {
+    return reduceSkipped(record, id, "tool-call limit reached");
   }
 
-  const execution = deps.runner.executions.at(-1);
-  const cached = execution?.cached ?? false;
-  const metrics = {
-    ...record.metrics,
-    toolCalls: record.metrics.toolCalls + attempts,
-    cachedToolCalls: record.metrics.cachedToolCalls + (cached ? 1 : 0)
-  };
-
-  if (isFailure(result)) {
-    return {
-      ...record,
-      metrics,
-      plan: setStep(record.plan, id, "failed", result.error.code),
-      blockers: [...new Set([...record.blockers, `${id}: ${result.error.code}`])]
-    };
-  }
-
-  return {
-    ...record,
-    metrics,
-    plan: setStep(record.plan, id, "completed", summarise(tool, result.data)),
-    evidence: [...record.evidence, ...result.evidence],
-    serviceEffects: captureServiceEffects(record.serviceEffects, tool, result.data),
-    unverifiedFixedCharges: captureUnverifiedFixedCharges(
-      record.unverifiedFixedCharges,
-      tool,
-      result.data
-    ),
-    facts: applyToolFacts(record.facts, tool, result.data, {
-      changeDate: record.facts.change_date
-    })
-  };
-}
-
-/**
- * The decomposition is the only place that sees every service on the invoice,
- * so its per-service breakdown is kept rather than discarded. A metered service
- * is one with usage quantities; fixed-fee lines have none.
- */
-/**
- * Fixed charges reconciliation could not authorise. R2 and D1 are illustrative
- * flat charges in this dataset with no subscription behind them, so arithmetic
- * consistency is all that can be said about them.
- */
-function captureUnverifiedFixedCharges<N extends ToolName>(
-  current: string[],
-  tool: N,
-  data: ToolOutput<N>
-): string[] {
-  if (tool !== "reconcile_invoice") return current;
-  // Comparing `tool` does not narrow `N`, so the compiler cannot follow this
-  // one step. The runtime check immediately above is what makes it sound.
-  const report = data as ToolOutput<"reconcile_invoice">;
-  return report.unverifiedFixedCharges ?? current;
-}
-
-function captureServiceEffects<N extends ToolName>(
-  current: ServiceEffectSummary[],
-  tool: N,
-  data: ToolOutput<N>
-): ServiceEffectSummary[] {
-  if (tool !== "decompose_variance") return current;
-  // As above: guarded by the check on the line before, not by an assumption.
-  const d = data as ToolOutput<"decompose_variance">;
-
-  return d.services.map((s) => ({
-    serviceName: s.serviceName,
-    metered: s.currentQuantity !== null,
-    totalEffectCents: s.totalEffectCents
-  }));
-}
-
-const DEFAULT_CLARIFICATION =
-  "Which two billing periods should I compare for this account?";
-
-/** Reads as one request: the reply alone does not say what was being asked. */
-function clarificationContext(
-  record: InvestigationRecord,
-  reply: string
-): string {
-  return [
-    `Original request: ${record.originalQuestion ?? ""}`.trim(),
-    `Clarification asked: ${record.clarificationQuestion ?? DEFAULT_CLARIFICATION}`,
-    `Answer: ${reply}`
-  ].join("\n");
-}
-
-type PeriodChoice =
-  | { currentPeriod: string; comparisonPeriod: string }
-  | { clarify: string };
-
-function listPeriods(periods: string[]): string {
-  return [...periods].sort().join(", ");
-}
-
-/**
- * Which two periods to compare, or what to ask.
- *
- * A requested period that the account does not have is *reported*, never
- * quietly swapped for the newest invoice. Substituting turned "why did May
- * jump?" into an investigation of August and answered it with conviction — the
- * wrong question, answered correctly, is worse than no answer.
- *
- * Falling back to the two most recent invoices stays legitimate in exactly one
- * case: the model could not be reached at all, so nothing was requested and
- * nothing is being overridden.
- */
-function resolvePeriods(
-  classification: CaseClassification | null,
-  periods: string[],
-  requested: string[]
-): PeriodChoice {
-  const sorted = [...periods].sort();
-
-  if (periods.length < 2) {
-    return {
-      clarify:
-        periods.length === 0
-          ? "I have no invoices for this account, so there is nothing to compare."
-          : `I only have one invoice for this account (${sorted[0]}), so there is nothing to compare it with.`
-    };
-  }
-
-  // The reader named them, so there is nothing left to infer.
-  //
-  // Validating only that the model's periods exist was not enough: asked which
-  // two to compare and answered "2026-06 and 2026-07", the live model replied
-  // with 2026-07 and 2026-08 — both available, so nothing objected, and the
-  // agent investigated a pair the reader had not asked for and reported it as
-  // the answer. An explicit instruction is data, not a suggestion, and it does
-  // not go through the model to be confirmed.
-  if (requested.length === 2) {
-    return { currentPeriod: requested[1], comparisonPeriod: requested[0] };
-  }
-  if (requested.length > 2) {
-    return {
-      clarify:
-        `That names ${requested.length} periods (${requested.join(", ")}). ` +
-        "Which two should I compare?"
-    };
-  }
-
-  if (!classification) {
-    return {
-      currentPeriod: sorted.at(-1)!,
-      comparisonPeriod: sorted.at(-2)!
-    };
-  }
-
-  if (classification.needsClarification) {
-    return {
-      clarify: classification.clarificationQuestion ?? DEFAULT_CLARIFICATION
-    };
-  }
-
-  const modelPeriods = [classification.currentPeriod, classification.comparisonPeriod];
-  const missing = [...new Set(modelPeriods.filter((p) => !periods.includes(p)))];
-  if (missing.length > 0) {
-    return {
-      clarify:
-        `I do not have ${missing.join(" or ")} for this account. ` +
-        `Available periods are ${listPeriods(periods)}. Which two should I compare?`
-    };
-  }
-
-  if (classification.currentPeriod === classification.comparisonPeriod) {
-    return {
-      clarify:
-        `That names ${classification.currentPeriod} twice. ` +
-        `Available periods are ${listPeriods(periods)}. Which two should I compare?`
-    };
-  }
-
-  return {
-    currentPeriod: classification.currentPeriod,
-    comparisonPeriod: classification.comparisonPeriod
-  };
-}
-
-/**
- * Classify and pin down the periods, or return the record still waiting.
- *
- * `question` is what the model reads; `provenance` is the request to remember,
- * so a clarification round trip keeps the original rather than storing the
- * synthesised context as though the user had typed it.
- */
-async function classifyPeriods(
-  record: InvestigationRecord,
-  question: string,
-  provenance: string,
-  userText: string,
-  deps: LoopDeps
-): Promise<InvestigationRecord> {
-  const context = await deps.runner.run("get_account_context", {
-    accountId: record.accountId
+  return reduceToolResult(record, id, tool, outcome.result, {
+    toolCalls: deps.executor.toolCalls,
+    cachedToolCalls: deps.executor.cachedToolCalls
   });
-  const periods = isFailure(context)
-    ? []
-    : context.data.availableInvoices.map((i) => i.period);
-
-  // Checked against what the reader actually typed, before the model is asked.
-  //
-  // Validating only the model's answer is not enough: shown the available
-  // periods, the live model quietly answers with those instead of the months
-  // it was asked about, so the substitution happens before any check can see
-  // it. Production proved this — "why did my May 2026 invoice jump compared to
-  // April 2026?" returned a reconciled, high-confidence answer whose figures
-  // were August's and whose prose said May.
-  //
-  // Only this turn's text is read. The synthesised clarification context still
-  // quotes the original request, so parsing that would re-raise the same
-  // objection forever and the reader could never answer it.
-  const asked = periodsNamed(userText, periods);
-  if (periods.length > 0) {
-    const unavailable = asked.filter((p) => !periods.includes(p));
-    if (unavailable.length > 0) {
-      return {
-        ...record,
-        originalQuestion: record.originalQuestion ?? provenance,
-        state: transition(record.state, "clarification_required"),
-        clarificationQuestion:
-          `I have no invoice for ${unavailable.join(" or ")} on this account. ` +
-          `Available periods are ${listPeriods(periods)}. Which two should I compare?`
-      };
-    }
-  }
-
-  let classification: CaseClassification | null;
-  try {
-    classification = await deps.model.classify({
-      question,
-      boundAccountId: record.accountId,
-      availablePeriods: periods
-    });
-  } catch {
-    classification = null;
-  }
-
-  // The account is never taken from the model: the investigation is bound to
-  // one account server-side and a model-supplied id cannot widen that.
-  const choice = resolvePeriods(
-    classification,
-    periods,
-    asked.filter((p) => periods.includes(p))
-  );
-  const remembered = record.originalQuestion ?? provenance;
-
-  if ("clarify" in choice) {
-    return {
-      ...record,
-      originalQuestion: remembered,
-      state: transition(record.state, "clarification_required"),
-      clarificationQuestion: choice.clarify
-    };
-  }
-
-  return {
-    ...record,
-    caseType: "invoice_variance",
-    originalQuestion: remembered,
-    currentPeriod: choice.currentPeriod,
-    comparisonPeriod: choice.comparisonPeriod,
-    clarificationQuestion: null,
-    state: transition(record.state, "planning")
-  };
 }
 
 function applyHypotheses(
@@ -648,6 +336,18 @@ export async function runInvestigationTurn(
     );
   }
 
+  // One executor per turn: every tool call, wherever it is made from, is
+  // counted here. Classification used to call the runner directly and go
+  // uncounted, so a twelve-call turn reported eleven.
+  const turn: TurnDeps = {
+    executor: new ToolExecutor(deps.runner, {
+      alreadySpent: input.metrics.toolCalls,
+      alreadyCached: input.metrics.cachedToolCalls
+    }),
+    model: deps.model,
+    focusService: deps.focusService
+  };
+
   let record = input;
 
   // 1. Classify. A clarification reply is classified too, against the request
@@ -655,14 +355,14 @@ export async function runInvestigationTurn(
   // reclassifying, so the periods stayed null and every turn after a
   // clarification investigated nothing and returned unresolved.
   if (record.state === "created") {
-    record = await classifyPeriods(record, question, question, question, deps);
+    record = await classifyPeriods(record, question, question, question, turn);
   } else if (record.state === "clarification_required") {
     record = await classifyPeriods(
       record,
       clarificationContext(record, question),
       record.originalQuestion ?? question,
       question,
-      deps
+      turn
     );
   }
 
@@ -673,7 +373,7 @@ export async function runInvestigationTurn(
 
   // 2. Required prelude, in fixed order. The model cannot skip these.
   for (const step of REQUIRED_PRELUDE) {
-    record = await callTool(record, step.tool, deps);
+    record = await callTool(record, step.tool, turn);
   }
 
   // 2a. Comparison and decomposition now tell us which services are metered and
@@ -738,10 +438,10 @@ export async function runInvestigationTurn(
         // One call per metered service, so an invoice-wide statement is backed
         // by a check of the whole invoice.
         for (const service of metered) {
-          record = await callTool(record, tool, deps, service);
+          record = await callTool(record, tool, turn, service);
         }
       } else {
-        record = await callTool(record, tool, deps);
+        record = await callTool(record, tool, turn);
       }
     }
     if (update.done) break;
@@ -771,13 +471,13 @@ export async function runInvestigationTurn(
       // Ids are built from the allowlist, so this holds; the guard is what lets
       // the compiler know it, and what would catch a malformed id.
       if (!isAllowedTool(tool)) continue;
-      record = await callTool(record, tool, deps, service);
+      record = await callTool(record, tool, turn, service);
     }
   }
 
   // 4. Reconciliation is forced, never selected. PRD §10.5 rule 2.
   record = { ...record, state: transition(record.state, "reconciling") };
-  record = await callTool(record, REQUIRED_RECONCILIATION.tool, deps);
+  record = await callTool(record, REQUIRED_RECONCILIATION.tool, turn);
 
   // 5. Server-side completion criteria and deterministic confidence.
   // Step ids, not tool names, so a per-service check counts only for the
@@ -859,21 +559,4 @@ export async function runInvestigationTurn(
     ),
     metrics: { ...record.metrics, completedAt: new Date().toISOString() }
   };
-}
-
-/**
- * Billing periods a piece of user text names.
- *
- * The year is inferred from the account's own invoices where the text omits
- * one, because "August versus July" is how the question is actually asked. Only
- * years the account has invoices in are tried, so an omitted year can never
- * invent a period out of range.
- */
-function periodsNamed(text: string, available: string[]): string[] {
-  const years = [...new Set(available.map((p) => Number(p.slice(0, 4))))];
-  const found = new Set<string>(periodsMentioned(text));
-  for (const year of years) {
-    for (const period of periodsMentioned(text, year)) found.add(period);
-  }
-  return [...found].sort();
 }

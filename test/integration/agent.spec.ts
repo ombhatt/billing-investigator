@@ -381,7 +381,7 @@ describe("bounded limits", () => {
     expect(record.summary!.invoiceAppearsCorrect).toBe(false);
   });
 
-  it("uses at most nine tool calls on the golden path", async () => {
+  it("spends eleven of the twelve calls on the golden path", async () => {
     const model = new ScriptedModel();
     const record = await runInvestigationTurn(fresh(), QUESTION, deps(model));
     // 11 of the 12 budget: two metered services each get a price and a
@@ -758,5 +758,60 @@ describe("a follow-up about an uninvestigated period", () => {
       new ScriptedModel()
     );
     expect(followUp.text).not.toContain("no evidence for 2026-05");
+  });
+});
+
+/**
+ * One accounting path, and every call on it.
+ *
+ * Budget accounting used to live in two places: `callTool` incremented the
+ * metrics, while period classification called the runner directly and was
+ * counted nowhere. A golden turn executed twelve tools and reported eleven, so
+ * the twelve-call bound could be exceeded by exactly the call nobody was
+ * watching.
+ */
+describe("every tool call is counted once, wherever it was made", () => {
+  it("reports as many calls as the runner actually performed", async () => {
+    const runner = new ToolRunner({ db: env.DB, investigationAccountId: ACCOUNT });
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      { runner, model: new ScriptedModel(), focusService: "Workers" }
+    );
+
+    // Cache hits are recorded but not charged: the bound caps work against D1,
+    // and a cache hit is not work.
+    const didWork = runner.executions.filter((e) => !e.cached);
+    expect(record.metrics.toolCalls).toBe(didWork.length);
+    expect(record.metrics.cachedToolCalls).toBe(
+      runner.executions.length - didWork.length
+    );
+  });
+
+  it("counts the account read that classification performs", async () => {
+    // The specific call that used to be invisible. It is the first execution of
+    // the turn, and it must be inside the total.
+    const runner = new ToolRunner({ db: env.DB, investigationAccountId: ACCOUNT });
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      { runner, model: new ScriptedModel(), focusService: "Workers" }
+    );
+
+    expect(runner.executions[0].tool).toBe("get_account_context");
+    expect(runner.executions[0].cached).toBe(false);
+    // Eleven distinct pieces of work, all of them counted.
+    expect(record.metrics.toolCalls).toBe(11);
+    expect(runner.executions).toHaveLength(12);
+  });
+
+  it("never reports more calls than the limit allows", async () => {
+    const runner = new ToolRunner({ db: env.DB, investigationAccountId: ACCOUNT });
+    const record = await runInvestigationTurn(
+      fresh(),
+      QUESTION,
+      { runner, model: new ScriptedModel(), focusService: "Workers" }
+    );
+    expect(record.metrics.toolCalls).toBeLessThanOrEqual(12);
   });
 });

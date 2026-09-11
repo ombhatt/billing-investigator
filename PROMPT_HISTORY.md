@@ -997,3 +997,32 @@ The compile-time guarantee is asserted in `test/types/toolContract.ts` rather
 than a spec file. My first attempt spawned `tsc` per test — seven seconds each,
 and wrong. `@ts-expect-error` directives checked by the existing typecheck gate
 cost nothing and fail loudly when a mistake becomes legal.
+
+---
+
+### Review recommendation — split the investigation coordinator
+
+The structural half was straightforward: `periodResolution.ts`,
+`toolExecution.ts` and `resultReducer.ts` out, sequencing left behind. 879 lines
+became 562 plus three focused modules.
+
+The half worth reporting is the budget. The reviewer noticed classification
+called the runner directly while `callTool` kept the metrics, and a probe
+confirmed it: a golden turn **executed twelve tools and reported eleven**. The
+twelve-call bound could be exceeded by exactly the call nobody was counting.
+
+`ToolExecutor` is now the only thing that touches the runner. One decision I
+made explicitly rather than by default: cache hits are recorded but not charged,
+because the bound caps work against D1 and a cache hit is not work. And the
+executor is seeded from the record's metrics rather than starting fresh — a
+refactor should not quietly redefine what a per-turn limit means, and starting
+fresh would have handed a resumed turn a second allowance.
+
+461 tests, up from 437. Mutation-checked three ways, and the third one is the
+interesting one: removing budget enforcement failed two tests, and changing what
+classification *wrote* failed none — because the executor is the source of truth
+and the next call corrects the record. Only making classification bypass the
+executor reproduced the original bug, and that now fails three. The first
+mutation I tried was not testing what I thought it was.
+
+Also renamed a test that said "at most nine tool calls" while asserting eleven.
