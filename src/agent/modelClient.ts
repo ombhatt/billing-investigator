@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { EvidenceCard } from "../types/tools.js";
-import type { InvestigationFacts } from "../tools/facts.js";
+import type { InvestigationFacts } from "./facts.js";
 import type { Hypothesis, HypothesisId, HypothesisStatus } from "./types.js";
 
 /**

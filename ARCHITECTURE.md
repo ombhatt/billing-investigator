@@ -944,7 +944,7 @@ if a change ever makes one legal, TypeScript reports the unused directive and
 
 Mutation-checked two ways. Annotating the catalog back to
 `Record<string, ToolHandler<unknown>>` produces **47 type errors**. Renaming
-`varianceCents` in the compare tool's output now flags `src/tools/facts.ts` and
+`varianceCents` in the compare tool's output now flags `src/agent/facts.ts` and
 `src/agent/loop.ts` — the two consumers that previously held casts and would have
 gone on reading `undefined`.
 
@@ -1331,3 +1331,67 @@ Mutation-checked three ways: reverting the guard to a yearless read fails two;
 excluding `"may"` again fails two; and matching `"may"` everywhere — the naive
 over-fix — also fails two, which is what pins the rule to the narrow form rather
 than to "detect May".
+---
+
+## 29. Addendum: the layer whose rule had no test
+
+Two changes, one theme: the `src/domain/` boundary was the project's most-stated
+guarantee and its least-checked one.
+
+### `facts.ts` was filed under the wrong layer
+
+`InvestigationFacts` and its reducers lived in `src/tools/facts.ts`. Nothing in
+`src/tools/` imported them. Eight files in `src/agent/` did.
+
+It was put there because it imports `ToolOutput` from the catalog, which reads
+like a tools-layer dependency. It is not: the module is the agent's fact
+accumulator, and the catalog import is the agent doing what the layer table says
+it does — consuming typed tool output. Filed under `tools/`, the directory
+listing said the tool layer owned investigation state, which is the one thing
+CLAUDE.md's table says it must not.
+
+Now `src/agent/facts.ts`. Pure move; the golden fact block is unchanged, which
+is the point — a rename that alters a number is not a rename.
+
+### The purity rule was enforced by coincidence
+
+`src/domain/` must import no binding, no runtime, no Cloudflare type. CLAUDE.md
+calls this "what makes the financial logic provable", and it is true today: all
+seventeen files import nothing but each other.
+
+Nothing was checking it. The claimed enforcement was the unit project running in
+the `node` environment, which only catches an import that fails to *resolve* in
+Node. Three ways past it, none exotic:
+
+- `import type { D1Database } from "@cloudflare/workers-types"` is erased before
+  a test runs. The suite stays green.
+- A cross-layer type import — `../types/tools.js` — resolves fine in Node and
+  reverses the dependency arrow silently.
+- Worst, no import at all. `worker-configuration.d.ts` is in tsconfig's
+  `include` and declares `D1Database` as a global class, so a domain function
+  could take a `D1Database` parameter and typecheck clean with nothing to grep
+  for.
+
+Type-only references are how this boundary erodes first, precisely because each
+one looks harmless and none of them costs a runtime dependency — until the
+"provable in plain Node" claim is retroactively false and nobody can say when it
+stopped being true.
+
+`test/unit/domainPurity.spec.ts` scans the directory statically, in the shape
+`sqlSafety.spec.ts` already established for exactly this reason: a behavioural
+test can only prove the inputs it happens to try, and this is a property of
+every file. It resolves each specifier — static, multi-line, side-effect,
+dynamic, `require` — against its own directory and requires it to land inside
+`src/domain/`, so a future subdirectory is covered the day it appears. A second
+check lists the ambient runtime globals, which the import scan cannot see by
+construction.
+
+Mutation-checked five ways, one per hole above plus the multi-line and dynamic
+forms of the import regex. Both scans carry a count guard, so a directory rename
+fails loudly instead of iterating an empty list and passing vacuously — the §12
+and §28 failure mode, applied to the test that exists to prevent it.
+
+A drive-by from the same move: `test/unit/toolTypes.spec.ts` reads source files
+by path string, and caught the relocation by throwing `ENOENT` rather than
+quietly asserting nothing. That is the count guard's lesson arriving on its own.
+

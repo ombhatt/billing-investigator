@@ -1,7 +1,7 @@
 import { formatUsd } from "../domain/money.js";
 import type { EvidenceCard } from "../types/tools.js";
-import type { InvestigationFacts } from "../tools/facts.js";
 import type { CompletionAssessment } from "./completion.js";
+import type { InvestigationFacts } from "./facts.js";
 import type { FinalSummary } from "./types.js";
 
 /**

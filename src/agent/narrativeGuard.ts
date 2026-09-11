@@ -1,7 +1,7 @@
 import { formatUsd } from "../domain/money.js";
 import { periodsMentionedWithin } from "../domain/period.js";
 import type { EvidenceCard } from "../types/tools.js";
-import type { InvestigationFacts } from "../tools/facts.js";
+import type { InvestigationFacts } from "./facts.js";
 
 /**
  * The model writes the prose a billing operator actually reads. Structured

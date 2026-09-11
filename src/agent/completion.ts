@@ -1,5 +1,5 @@
 import { evaluateConfidence, type Confidence } from "../domain/confidence.js";
-import type { InvestigationFacts } from "../tools/facts.js";
+import type { InvestigationFacts } from "./facts.js";
 import { REQUIRED_TOOLS } from "./playbooks/invoiceVariance.js";
 
 export const MIN_EXPLAINED_PERCENT = 95;

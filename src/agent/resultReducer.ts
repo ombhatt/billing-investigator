@@ -1,4 +1,4 @@
-import { applyToolFacts } from "../tools/facts.js";
+import { applyToolFacts } from "./facts.js";
 import type { ToolName, ToolOutput } from "../tools/registry.js";
 import { isFailure, type ToolResult } from "../types/tools.js";
 import type {

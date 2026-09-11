@@ -71,7 +71,7 @@ describe("the erasure does not creep back", () => {
   it("has no consumer reconstructing a tool result by hand", () => {
     // These two were the reviewer's examples: a switch over tool names with an
     // `as` cast per branch, asserting shapes nothing checked.
-    expect(read("src/tools/facts.ts")).not.toMatch(/data as \{/);
+    expect(read("src/agent/facts.ts")).not.toMatch(/data as \{/);
     expect(read("src/agent/loop.ts")).not.toMatch(/data as \{/);
   });
 

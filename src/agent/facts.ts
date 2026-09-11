@@ -1,5 +1,5 @@
 import type { Confidence } from "../domain/confidence.js";
-import type { ToolName, ToolOutput } from "./catalog.js";
+import type { ToolName, ToolOutput } from "../tools/catalog.js";
 
 /**
  * The structured block every path must agree on: pure domain, the M3 runner,

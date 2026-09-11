@@ -87,8 +87,10 @@ is a build failure, not a test to update.
 | `explained_percent` | `100` | `domain` + `tools` + `agent` |
 | `confidence` | `high` | `domain` + `tools` + `agent` |
 
-`domain` is pure TypeScript; `tools` is the nine tools against D1; `agent` is the
-full bounded loop. Tests assert all three paths produce identical blocks, so a
+`domain` is pure TypeScript — enforced by `test/unit/domainPurity.spec.ts`, which
+scans the directory for any import resolving outside it and for any reference to
+an ambient Cloudflare runtime type. `tools` is the nine tools against D1; `agent` is
+the full bounded loop. Tests assert all three paths produce identical blocks, so a
 repository that reshaped data, or an agent that dropped a step, fails rather than
 passing quietly.
 
@@ -153,7 +155,7 @@ than a matter of prompt compliance:
 
 | Guarantee | Enforced by |
 |---|---|
-| Cannot calculate totals | Facts are folded from tool output only (`tools/facts.ts`); model prose never reaches them |
+| Cannot calculate totals | Facts are folded from tool output only (`agent/facts.ts`); model prose never reaches them |
 | Cannot run SQL | It has no tool access at all; the server builds every tool input from the record |
 | Cannot skip reconciliation | `reconcile_invoice` is called outside the planning loop, and the state machine has no `investigating -> completed` edge |
 | Cannot change confidence | `evaluateConfidence` runs after the loop, from facts |
@@ -406,3 +408,4 @@ deployment commands included in both the README and the final report.
 | 2026-09-10 | Coordinator split into period resolution, tool execution and result reduction; loop.ts 879 -> 562 lines. Budget accounting centralised in ToolExecutor, closing a divergence where classification executed a tool without counting it (12 executed, 11 reported). 461 tests. |
 | 2026-09-10 | Branded `Cents`, `Quantity`, `BillingPeriod`, `IsoDate` in `src/domain/units.ts`, with checked arithmetic and validation at the repository boundary. Removed dead `src/tools/definitions.ts`. 481 tests; seed byte-identical. |
 | 2026-09-10 | Added `InvestigationStore` (Durable Object + in-memory implementations) owning envelope persistence, the reusable-result cache and the generation-checked commit. Closes FR-12 "tool calls and results" and FR-5 "cached persisted result", both previously half met. 489 tests. |
+| 2026-09-11 | Code-organization review. `facts.ts` moved from `src/tools/` to `src/agent/`, where its only eight consumers are. Domain purity gained a static check (`test/unit/domainPurity.spec.ts`): no import resolving outside `src/domain/`, and no reference to an ambient Cloudflare global — the hole `worker-configuration.d.ts` leaves open, since it declares `D1Database` with no import to grep for. Mutation-checked five ways. 499 tests. |

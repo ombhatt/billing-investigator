@@ -1,7 +1,7 @@
 import { ToolRunner } from "../tools/registry.js";
 import type { ToolDeps } from "../tools/createTool.js";
 import type { EvidenceCard } from "../types/tools.js";
-import type { InvestigationFacts } from "../tools/facts.js";
+import type { InvestigationFacts } from "./facts.js";
 import { newInvestigation, runInvestigationTurn } from "./loop.js";
 import { DeterministicModelClient } from "./modelClient.js";
 

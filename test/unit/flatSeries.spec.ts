@@ -5,7 +5,7 @@ import {
   MATERIAL_RATIO,
   type DailyPoint
 } from "../../src/domain/changePoint.js";
-import { applyToolFacts, emptyFacts } from "../../src/tools/facts.js";
+import { applyToolFacts, emptyFacts } from "../../src/agent/facts.js";
 import { deterministicSummary } from "../../src/agent/summary.js";
 import type { CompletionAssessment } from "../../src/agent/completion.js";
 

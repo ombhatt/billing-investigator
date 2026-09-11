@@ -5,11 +5,11 @@ import {
   meteredServiceNames,
   type ServiceCandidate
 } from "../domain/servicePolicy.js";
-import { emptyFacts } from "../tools/facts.js";
 import { isAllowedTool } from "../tools/registry.js";
 import type { ToolInput, ToolName, ToolRunner } from "../tools/registry.js";
 
 import { applicableDiagnostics, assessCompletion } from "./completion.js";
+import { emptyFacts } from "./facts.js";
 import type { ModelClient, PlanUpdate } from "./modelClient.js";
 import { planUpdateSchema } from "./modelClient.js";
 import { safeNarrative } from "./narrativeGuard.js";

@@ -4,7 +4,7 @@ import {
   safeNarrative,
   type NarrativeContext
 } from "../../src/agent/narrativeGuard.js";
-import { emptyFacts } from "../../src/tools/facts.js";
+import { emptyFacts } from "../../src/agent/facts.js";
 import type { EvidenceCard } from "../../src/types/tools.js";
 
 /**

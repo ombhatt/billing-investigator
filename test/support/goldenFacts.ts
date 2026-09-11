@@ -1,4 +1,4 @@
-import type { InvestigationFacts } from "../../src/tools/facts.js";
+import type { InvestigationFacts } from "../../src/agent/facts.js";
 
 /**
  * The PRD §20.4 fact block, transcribed once.

@@ -1225,3 +1225,43 @@ everywhere, which fails two tests — that is what holds the rule to the narrow
 form instead of to "detect May".
 
 496 tests, up from 489. Golden facts unchanged.
+
+### Code-organization review — "talk to me about the code organization"
+
+Asked for an assessment of how the repo is laid out, then to act on two of the
+three findings. (The third — `src/agent/loop.ts` at 561 lines doing five jobs,
+with `INPUT_BUILDERS` the obvious extraction — was left for a separate change.)
+
+**`facts.ts` was filed under the wrong layer.** Zero files in `src/tools/`
+imported it; eight in `src/agent/` did. It is the agent's fact accumulator,
+sitting in the tool directory because it imports `ToolOutput` from the catalog.
+Moved to `src/agent/facts.ts`; import paths, two doc references and one static
+test updated. Pure move, golden facts unchanged.
+
+**The domain purity rule had no test.** `src/domain/` importing no binding and
+no Cloudflare type is the project's most-stated structural guarantee — CLAUDE.md
+calls it "what makes the financial logic provable" — and the only thing checking
+it was the unit project running in the `node` environment. That catches an
+import which fails to *resolve* in Node and nothing else. `import type
+{ D1Database }` is erased before a test runs; a cross-layer type import resolves
+fine; and `worker-configuration.d.ts` is in tsconfig's `include`, so a domain
+function could take a `D1Database` parameter with **no import at all** and
+typecheck clean.
+
+`test/unit/domainPurity.spec.ts` scans statically, in the shape
+`sqlSafety.spec.ts` already established. Every specifier — static, multi-line,
+side-effect, dynamic, `require` — is resolved against its own directory and must
+land inside `src/domain/`; a second check lists the ambient runtime globals the
+import scan cannot see by construction. Both carry a count guard so a directory
+rename fails loudly rather than iterating an empty list.
+
+Mutation-checked five ways: type-only cross-layer import, bare package import,
+multi-line import, dynamic `import()`, and the ambient `D1Database` parameter
+with no import. Each fails with the file and specifier named; all five pass
+again once reverted.
+
+The move was caught by `toolTypes.spec.ts`, which reads source by path string
+and threw `ENOENT` rather than asserting nothing — the count guard's lesson
+arriving unprompted. Reasoning recorded in `ARCHITECTURE.md` §29.
+
+499 tests, up from 496. Golden facts unchanged.

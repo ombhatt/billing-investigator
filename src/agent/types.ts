@@ -1,7 +1,7 @@
 import type { EvidenceCard } from "../types/tools.js";
 import type { ToolName } from "../tools/catalog.js";
 import type { BillingPeriod } from "../domain/units.js";
-import type { InvestigationFacts } from "../tools/facts.js";
+import type { InvestigationFacts } from "./facts.js";
 
 /** PRD §10.3. */
 export type InvestigationState =
