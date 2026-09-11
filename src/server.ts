@@ -4,6 +4,10 @@ import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
 import { createWorkersAI } from "workers-ai-provider";
 import { answerFollowUp } from "./agent/followUp.js";
 import { mayCommit, nextGeneration } from "./agent/generation.js";
+import {
+  DurableObjectStore,
+  type InvestigationStore
+} from "./agent/investigationStore.js";
 import { newInvestigation, runInvestigationTurn } from "./agent/loop.js";
 import { DeterministicModelClient, type ModelClient } from "./agent/modelClient.js";
 import { assertServerOwnedState } from "./agent/stateOwnership.js";
@@ -89,39 +93,21 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
     }
   }
 
-  /** Audit trail of tool executions. Never contains model reasoning. */
-  private recordExecutions(runner: ToolRunner, investigationId: string): void {
-    // `void` because these statements are executed for their effect; the
-    // tagged template returns rows that a write has no use for.
-    void this.sql`
-      CREATE TABLE IF NOT EXISTS tool_executions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        investigation_id TEXT NOT NULL,
-        tool TEXT NOT NULL,
-        input TEXT NOT NULL,
-        ok INTEGER NOT NULL,
-        error_code TEXT,
-        cached INTEGER NOT NULL,
-        duration_ms INTEGER NOT NULL,
-        executed_at TEXT NOT NULL
-      )`;
-
-    for (const execution of runner.executions) {
-      const failed = "error" in execution.result;
-      void this.sql`
-        INSERT INTO tool_executions
-          (investigation_id, tool, input, ok, error_code, cached, duration_ms, executed_at)
-        VALUES (
-          ${investigationId},
-          ${execution.tool},
-          ${JSON.stringify(execution.input)},
-          ${failed ? 0 : 1},
-          ${failed ? (execution.result as { error: { code: string } }).error.code : null},
-          ${execution.cached ? 1 : 0},
-          ${execution.durationMs},
-          ${execution.result.executedAt}
-        )`;
-    }
+  /**
+   * Where evidence and state are kept.
+   *
+   * A seam rather than inline SQL: the agent no longer owns a table schema, and
+   * a test can substitute an in-memory implementation instead of shadowing the
+   * Durable Object's own storage.
+   */
+  protected store(): InvestigationStore {
+    return new DurableObjectStore({
+      sql: (strings, ...values) =>
+        this.sql(strings, ...(values as (string | number | boolean | null)[])) as never,
+      readGeneration: () => this.currentGeneration(),
+      setState: (investigation, generation) =>
+        this.setState({ investigation, generation })
+    });
   }
 
   /**
@@ -144,6 +130,7 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
   }
 
   async onChatMessage(_onFinish: unknown, options?: OnChatMessageOptions) {
+    const store = this.store();
     const openedIn = this.currentGeneration();
     const abortSignal = options?.abortSignal;
     const stillOurs = () =>
@@ -175,23 +162,31 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
       if (!stillOurs()) return this.discardedTurn();
       text = followUp.text;
     } else {
-      const runner = new ToolRunner({
-        db: this.env.DB,
-        investigationAccountId: INVESTIGATION_ACCOUNT_ID
-      });
-      const record = await runInvestigationTurn(
-        existing ?? newInvestigation(crypto.randomUUID(), INVESTIGATION_ACCOUNT_ID, FOCUS_SERVICE),
-        question,
-        { runner, model, focusService: FOCUS_SERVICE }
+      const opened =
+        existing ??
+        newInvestigation(
+          crypto.randomUUID(),
+          INVESTIGATION_ACCOUNT_ID,
+          FOCUS_SERVICE
+        );
+      const runner = new ToolRunner(
+        { db: this.env.DB, investigationAccountId: INVESTIGATION_ACCOUNT_ID },
+        { store, investigationId: opened.investigationId }
       );
+      const record = await runInvestigationTurn(opened, question, {
+        runner,
+        model,
+        focusService: FOCUS_SERVICE
+      });
 
-      // The tool calls genuinely ran, so the audit trail keeps them either way.
+      // The tool calls genuinely ran, so their envelopes are kept either way —
+      // evidence and limitations included, which is what makes them reusable.
       // It is the investigation record that must not come back from the dead.
-      this.recordExecutions(runner, record.investigationId);
-      if (!stillOurs()) return this.discardedTurn();
-      // Writing `openedIn` rather than re-reading: a turn never advances the
-      // generation, it only ever commits into the one it was started in.
-      this.setState({ investigation: record, generation: openedIn });
+      await store.record(record.investigationId, runner.executions);
+      if (abortSignal?.aborted) return this.discardedTurn();
+      // The store checks the generation and writes without an await between,
+      // so a reset cannot land in the gap.
+      if (!(await store.commit(record, openedIn))) return this.discardedTurn();
 
       toolActivity = record.plan
         .filter((s) => s.status === "completed")

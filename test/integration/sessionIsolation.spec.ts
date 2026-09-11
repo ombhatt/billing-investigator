@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
 import { seedDataset } from "./seedD1.js";
 import { BillingInvestigatorAgent } from "../../src/server.js";
+import {
+  InMemoryInvestigationStore,
+  type InvestigationStore
+} from "../../src/agent/investigationStore.js";
 import type {
   CaseClassification,
   ClassifyInput,
@@ -74,36 +78,45 @@ class GatedModel implements ModelClient {
 }
 
 /**
- * The real `onChatMessage` and `onRequest`, run against a stand-in for the
- * Durable Object's persistence. Everything under test — the generation read,
- * the commit guard, the ordering between them — is the shipped code.
+ * The real `onChatMessage` and `onRequest`, against an in-memory store.
+ *
+ * Persistence used to be substituted by shadowing `sql` and `setState` on the
+ * SDK's own prototype — a stand-in for a stand-in, which told you nothing about
+ * whether the real store behaved the same way. `store()` is now our own seam,
+ * so the test overrides one method of our own class and everything under test —
+ * the generation read, the commit, the ordering between them — is the shipped
+ * code path.
+ *
+ * The two members still shadowed are the SDK's `messages` and our private
+ * `modelClient`, because a turn needs a question and must not require a Workers
+ * AI binding.
  */
-function harness(model: ModelClient) {
-  const agent = Object.create(
-    BillingInvestigatorAgent.prototype
-  ) as BillingInvestigatorAgent;
+class TestAgent extends BillingInvestigatorAgent {
+  memory!: InMemoryInvestigationStore;
 
-  // The Durable Object's own members are protected, so the stand-ins are
-  // installed as own properties that shadow the prototype at runtime.
+  protected override store(): InvestigationStore {
+    return this.memory;
+  }
+}
+
+function harness(model: ModelClient) {
+  const agent = Object.create(TestAgent.prototype) as TestAgent;
   const slot = agent as unknown as Record<string, unknown>;
 
-  let state: { investigation: unknown; generation: number } = {
-    investigation: null,
-    generation: 0
-  };
+  const memory = new InMemoryInvestigationStore();
+  (agent as unknown as { memory: InMemoryInvestigationStore }).memory = memory;
 
-  Object.defineProperty(agent, "state", { get: () => state });
-  slot.setState = (next: typeof state) => {
-    state = next;
-  };
   slot.env = { DB: env.DB };
   slot.messages = [
     { id: "m1", role: "user", parts: [{ type: "text", text: QUESTION }] }
   ];
-  // The audit trail writes to the DO's own SQL, which is not what is under test.
-  slot.sql = () => [];
-  // Shadows the private accessor so no Workers AI binding is needed.
   slot.modelClient = () => model;
+  // The agent reads its own generation for the turn it opens in; the store is
+  // the authority on what that generation currently is.
+  slot.currentGeneration = () => memory.state.generation;
+  slot.setState = (next: { investigation: unknown; generation: number }) => {
+    if (next.investigation === null) memory.reset();
+  };
 
   const ask = (options?: { abortSignal?: AbortSignal }) =>
     (
@@ -114,11 +127,11 @@ function harness(model: ModelClient) {
     ).call(agent, undefined, { requestId: "req-1", ...options });
 
   const reset = () =>
-    agent.onRequest(
+    (agent as BillingInvestigatorAgent).onRequest(
       new Request("http://do/agents/x/y/reset-investigation", { method: "POST" })
     );
 
-  return { agent, ask, reset, read: () => state };
+  return { agent, ask, reset, read: () => memory.state, memory };
 }
 
 describe("a turn interrupted by Reset cannot write itself back", () => {

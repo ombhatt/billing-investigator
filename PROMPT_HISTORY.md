@@ -1068,3 +1068,37 @@ row-level check catches it. That mutation now fails.
 
 Seed hash unchanged (`9a11702d…`), so branding altered no values, and the golden
 facts are untouched.
+
+---
+
+### Review recommendation — a persistence interface for investigation evidence
+
+The reviewer was right that this "addresses an existing persistence requirement
+rather than preparing for hypothetical databases", and checking the PRD made that
+sharper than the recommendation put it. **Two requirements were half met.**
+
+FR-12 asks for "tool calls *and results*" to be persisted; the agent stored an
+audit row per call and dropped the envelope, so evidence cards and data
+limitations existed only in memory. FR-5 asks for "a cached *persisted* result
+within the investigation"; the cache was a `Map` that died with the turn.
+
+`InvestigationStore` now owns recording envelopes, offering reusable results,
+listing them for recovery, and committing state behind the generation check.
+`DurableObjectStore` over the object's own SQLite, `InMemoryInvestigationStore`
+for tests.
+
+Three decisions I made explicitly. A **new table** rather than columns added to
+the old one, because deployed Durable Objects carry the old schema and
+`CREATE TABLE IF NOT EXISTS` would leave them half-migrated in silence.
+**Failures are never reusable**, so a transient error stays retryable rather than
+sticky. And the **commit moved into the store**, because the generation check and
+the state write must not be separated by an `await` — putting them in one method
+makes that structural instead of a comment asking the next reader to be careful.
+
+The tests that used to shadow `sql` and `setState` on the SDK prototype now
+override `store()` on a subclass of our own class. A stand-in for a stand-in told
+us nothing about whether the real store behaved the same way.
+
+489 tests, up from 481. Mutation-checked three ways: storing metadata instead of
+the envelope fails four, removing the generation check fails four, making
+failures reusable fails one.

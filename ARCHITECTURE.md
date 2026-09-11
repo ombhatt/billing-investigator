@@ -1055,3 +1055,67 @@ The boundary test now adds a half cent to **both** invoices, so their difference
 is a whole number and the checked arithmetic has nothing to object to. Only the
 row-level check catches it. That mutation now fails, and the test proves the
 guard it claims to.
+
+## 25. Addendum: a store for evidence and state
+
+Review found the agent owning a table schema, and two PRD requirements only half
+met behind it.
+
+**FR-12 asks for "tool calls *and results*" to be persisted.** The agent wrote an
+audit row per call — tool name, timing, error code, whether it was cached — and
+dropped the envelope. The evidence cards, the data limitations, the source record
+ids, the values behind every claim: none of it survived the isolate. What was
+kept was proof that a call happened, not what it found.
+
+**FR-5 asks for "a cached *persisted* result within the investigation."** The
+cache was a `Map` on the runner, created and discarded per turn. The same
+question asked twice read D1 twice.
+
+`InvestigationStore` now owns both, plus the commit:
+
+```
+record(investigationId, executions)   full envelopes, evidence included
+reusable(investigationId, cacheKey)   a successful earlier result, or null
+envelopes(investigationId)            everything recorded, for recovery
+generation() / commit(record, openedIn)
+```
+
+`DurableObjectStore` implements it over the object's own SQLite — not D1; no
+billing data is written anywhere. `InMemoryInvestigationStore` implements the
+same contract for tests.
+
+### Details worth stating
+
+**A new table, not new columns.** Durable Objects already deployed carry the old
+`tool_executions` schema, and `CREATE TABLE IF NOT EXISTS` would leave them
+without the added columns — a silent half-migration. `tool_envelopes` is a fresh
+table; the old one simply stops being written.
+
+**Failures are never reusable.** A transient error should stay retryable rather
+than become sticky, so only successful envelopes are offered back.
+
+**The commit moved into the store**, because the generation check and the state
+write must not be separated by an `await`. Keeping them in one method makes that
+structural rather than a comment asking the next reader to be careful.
+
+**A cache hit is recorded and not charged.** It still appears in the audit trail —
+the call was made — while the budget only counts work.
+
+### Tests stopped shadowing the SDK
+
+The reset-during-inference tests used to substitute persistence by shadowing
+`sql` and `setState` on the SDK's own prototype: a stand-in for a stand-in, which
+said nothing about whether the real store behaved the same way. They now override
+`store()` — a seam of ours, on a subclass of ours — and exercise the shipped path.
+
+### Validation
+
+`test/integration/investigationStore.spec.ts` runs an investigation, discards the
+runtime, and recovers the evidence from the store alone: complete cards,
+limitations intact, and a second runner reusing a persisted result it could not
+have had in memory. A reset still refuses a stale commit while keeping that
+turn's envelopes, because the calls did happen.
+
+Mutation-checked three ways: storing metadata instead of the envelope fails four
+tests, removing the generation check fails four, and making failures reusable
+fails one.

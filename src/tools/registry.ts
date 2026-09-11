@@ -52,9 +52,24 @@ function cacheKey(name: string, input: unknown): string {
 export interface ToolExecution {
   tool: string;
   input: unknown;
+  /** Identifies an exact repeat of this call, for the persisted cache. */
+  cacheKey: string;
   result: ToolResult<unknown>;
   cached: boolean;
   durationMs: number;
+}
+
+/**
+ * Somewhere a result can be kept between turns.
+ *
+ * Narrower than the full store on purpose: the runner needs to look a result up
+ * and nothing else, so that is all it is given.
+ */
+export interface ResultCache {
+  reusable(
+    investigationId: string,
+    cacheKey: string
+  ): Promise<ToolResult<unknown> | null>;
 }
 
 /**
@@ -71,7 +86,15 @@ export class ToolRunner {
   private readonly cache = new Map<string, ToolResult<unknown>>();
   readonly executions: ToolExecution[] = [];
 
-  constructor(private readonly deps: ToolDeps) {}
+  constructor(
+    private readonly deps: ToolDeps,
+    /**
+     * Results recorded by earlier turns. Without one the cache is per-turn,
+     * which is what FR-5's "cached persisted result within the investigation"
+     * was not getting.
+     */
+    private readonly persisted?: { store: ResultCache; investigationId: string }
+  ) {}
 
   async run<N extends ToolName>(
     name: N,
@@ -94,6 +117,7 @@ export class ToolRunner {
       this.executions.push({
         tool: name,
         input,
+        cacheKey: cacheKey(name, input),
         result,
         cached: false,
         durationMs: 0
@@ -102,11 +126,17 @@ export class ToolRunner {
     }
 
     const key = cacheKey(name, input);
-    const hit = this.cache.get(key);
+    const hit =
+      this.cache.get(key) ??
+      (await this.persisted?.store.reusable(this.persisted.investigationId, key));
     if (hit) {
+      // Recorded again so the audit trail shows the call was made, and marked
+      // cached so it is not charged against the budget.
+      this.cache.set(key, hit);
       this.executions.push({
         tool: name,
         input,
+        cacheKey: key,
         result: hit,
         cached: true,
         durationMs: 0
@@ -122,6 +152,7 @@ export class ToolRunner {
     this.executions.push({
       tool: name,
       input,
+      cacheKey: key,
       result,
       cached: false,
       durationMs: Date.now() - started
