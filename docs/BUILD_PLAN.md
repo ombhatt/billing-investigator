@@ -1,7 +1,7 @@
 # Build Plan — P0 (Smallest Credible Build)
 
 **Derived from:** `docs/PRD.md` v1.0
-**Status:** Plan only. No implementation has started.
+**Status:** Complete. All five milestones delivered; P0 closed 2026-09-11. P1 continues in `docs/BUILD_PLAN_P1.md`.
 **Companion docs:** `CLAUDE.md` (permanent rules), `docs/BUILD_STATUS.md` (progress tracker)
 
 ---

@@ -218,6 +218,7 @@ charts, AI Gateway, Workflows, Vectorize, R2, authentication, RBAC, multi-tenanc
   shape it does.
 - [`docs/PRD.md`](./docs/PRD.md) — the product requirements this was built against
 - [`docs/BUILD_PLAN.md`](./docs/BUILD_PLAN.md) — how P0 was scoped down
+- [`docs/BUILD_PLAN_P1.md`](./docs/BUILD_PLAN_P1.md) — the P1 plan, starting with the duplicated-usage account
 - [`docs/BUILD_STATUS.md`](./docs/BUILD_STATUS.md) — milestone status, spike
   outcomes, and every deviation from the PRD with its rationale
 - [`PROMPT_HISTORY.md`](./PROMPT_HISTORY.md) — the AI-assisted build record

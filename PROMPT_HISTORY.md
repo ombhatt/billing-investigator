@@ -1399,3 +1399,52 @@ mermaid 10.9.1 in Chrome, which reported `MERMAID OK` and drew it correctly,
 Two further diagrams exist in the artifact and were deliberately not ported: the
 tool-call gate pipeline belongs in `ARCHITECTURE.md`, which is the version for
 someone who has seen the code, and the follow-up branch was not asked for.
+
+### Opening P1 and planning the duplicated-usage account
+
+Asked which P1 scenarios are worth considering, then to update `CLAUDE.md` and
+draft a plan for the duplicated-usage account.
+
+P0 closed on 2026-09-11 but `CLAUDE.md` still carried a "Not in P0 — do not add"
+section saying P1 "waits until P0 is done", so the project rules contradicted the
+work as soon as it started. Replaced with scope gates that record P0 closed, list
+each P1 item with its actual state, and keep the exclusions that are still
+exclusions — Workflows, R2 as infrastructure, Vectorize, auth/RBAC, and new case
+types. P1 adds scenarios *within* `invoice_variance`; it does not add case types.
+
+The duplicated-usage account goes first, ahead of the missing-credit account the
+PRD lists before it, for two reasons. It is the cheaper of the two — every piece
+of machinery already exists and is wired, down to `evaluateConfidence`'s own doc
+comment describing the trigger as "a duplicate that the invoice bills". And a
+missing credit is an *absence* claim, which rule 21 says cannot be asserted
+without a record of the entitlement that should have applied; that is a schema
+decision, not seed data.
+
+Two design forks settled in the plan rather than left to discovery:
+
+An exact duplicate is **unstorable** — `event_id` is the primary key — so the
+scenario seeds *probable* duplicates, which is also the realistic shape: a replay
+assigns fresh event ids to the same `source_event_key`.
+
+More importantly, the duplicate must flow all the way through to the invoice, so
+**reconciliation passes and the bill is still wrong**. Stopping it before the
+rollup would fail `raw_usage_vs_daily_aggregate` and make this a pipeline
+-discrepancy case instead, proving neither thing. The version where reconciliation
+passes is the one that shows why rule 7 has three clauses.
+
+Sequenced as Milestones 6–10, continuing the P0 plan's numbering. M6 exists only
+to make the second account impossible to add unsafely: the generator runs one
+`mulberry32(SEED)` stream today, so drawing a second account from it would make
+`abc123`'s figures order-dependent and silently move a fact block three layers
+assert. Per-account streams land before any second account exists. M8 is flagged
+as the highest-risk step, being the only one that touches a security invariant —
+lifting `INVESTIGATION_ACCOUNT_ID` from a module constant is exactly how rule 5
+stops being trivially true.
+
+Every factual claim in the plan was checked against the code rather than
+remembered: the twelve reconciliation boundaries, the material-conflict paths
+into `low` confidence and into a blocker, the per-service duplicate check, the
+single PRNG stream, surplus-only quantity, and the `unresolved` transition.
+
+No numbers invented for the second fact block — its *shape* is pinned in the plan
+and the figures wait for the seed that produces them.

@@ -1,7 +1,7 @@
 # Billing Investigator — Project Rules
 
 Read-only AI agent that investigates invoice-variance complaints over synthetic billing data.
-Source of truth: `docs/PRD.md`. Build order: `docs/BUILD_PLAN.md`. Progress:
+Source of truth: `docs/PRD.md`. Build order: `docs/BUILD_PLAN.md` (P0, complete), `docs/BUILD_PLAN_P1.md` (P1). Progress:
 `docs/BUILD_STATUS.md`.
 
 ## Commands
@@ -104,12 +104,32 @@ not the absent one. Reasoning per item is in `ARCHITECTURE.md` §9–§31.
     reset advances the generation and a turn commits only into its own; the `useAgent` name is
     the Durable Object id and must never be a shared constant.
 
-## Not in P0 — do not add
+## Scope gates
 
-Workflows, R2, Vectorize, AI Gateway, auth/RBAC, accounts beyond `abc123`, non-variance cases.
+**P0 closed 2026-09-11.** All twenty-one PRD §24 boxes verified, §20.5 passed against the
+deployed URL. Everything P0 built is now regression surface: P1 adds alongside the golden
+account, its fact block and the invariants above — it never changes them.
 
-All P1 (more accounts, escalation export, AI Gateway, cost chart) and P2 (production APIs,
-approvals, Slack/email, forecasting, contract ingestion, vector search) wait until P0 is done.
+**P1 — open.** Plan and sequencing in `docs/BUILD_PLAN_P1.md`.
+
+| Item | PRD | State |
+|---|---|---|
+| Second account, duplicated usage | §6.2 | planned — first |
+| Third account, missing credit | §6.2 | after the above; needs an entitlement record, see rule 21 |
+| Escalation-summary export | §6.2 | not started — must pass the same narrative guard as on-screen prose |
+| AI Gateway inference observability | §6.2 | not started — PRD §1120 also requires documenting what it observes |
+| Cost-driver chart | §6.2 | not started — the series already reaches the UI as evidence |
+
+**Adding an account must not move the golden account.** A new account draws from its own PRNG
+stream, never the shared one; `.seed/golden.sql` stays byte-identical for `abc123` and the
+fact block below is unchanged. A second account gets its own pinned block beside it.
+
+**Still excluded at any priority:** Workflows, R2 as infrastructure, Vectorize, auth/RBAC
+(PRD §4.2 non-goal), non-variance case types — P1 adds scenarios within `invoice_variance`,
+not new case types.
+
+**P2 — still deferred:** production APIs, approvals for financial adjustments, Slack/email,
+forecasting, contract ingestion, automated case creation, vector search.
 
 > "R2" and "D1" appear as synthetic **invoice line items** in seeded data. The R2 product is not
 > used as infrastructure. D1 is required infrastructure.
