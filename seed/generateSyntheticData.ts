@@ -262,6 +262,28 @@ export function generateSyntheticData(
       )
     );
   }
+
+  // The replay, if this account has one. Injected before the sort and the
+  // rollup, so the copies flow through daily_usage into the rated charges
+  // and onto the invoice: every boundary ties, and the bill is overstated.
+  if (profile.duplicateRun) {
+    const replay = profile.duplicateRun;
+    const dates = new Set(replay.dates);
+    const copies = usageEvents
+      .filter(
+        (e) =>
+          e.serviceName === replay.serviceName &&
+          e.zoneId === replay.zoneId &&
+          dates.has(e.occurredAt.slice(0, 10))
+      )
+      // Only the id changes. Same sourceEventKey, timestamp, zone, quantity
+      // and unit, which is exactly what fingerprint() groups on.
+      .map((e) => ({ ...e, eventId: `${replay.eventIdPrefix}-${e.eventId}` }));
+    if (copies.length === 0) {
+      throw new Error(`duplicateRun matched no events for ${accountId}`);
+    }
+    usageEvents.push(...copies);
+  }
   usageEvents.sort(
     (a, b) =>
       a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId)

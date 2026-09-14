@@ -115,6 +115,29 @@ export interface AccountProfile {
   changeDate: string;
   changeHourUtc: number;
 
+  /**
+   * An ingestion replay: a second copy of an existing run of events.
+   *
+   * Each copy keeps its original `sourceEventKey`, timestamp, zone, quantity
+   * and unit, and takes a **new** `eventId`. That is precisely a *probable*
+   * duplicate under `fingerprint()` — and it cannot be an *exact* one, because
+   * `usage_events.event_id` is the primary key, so a repeated id is unstorable.
+   *
+   * The copies are injected before the daily rollup, so they flow through
+   * `daily_usage` into the rated charges and onto the invoice. The bill is then
+   * arithmetically perfect and substantively wrong: reconciliation passes at
+   * every boundary and the invoice is still overstated. That is the whole point
+   * of the scenario — see `docs/BUILD_PLAN_P1.md` §1.1.
+   */
+  duplicateRun?: {
+    serviceName: string;
+    zoneId: string;
+    /** Dates whose events are copied, `YYYY-MM-DD`. */
+    dates: string[];
+    /** Prefixed onto the original event id to make the copy's id. */
+    eventIdPrefix: string;
+  };
+
   accountEvents: Omit<AccountEvent, "accountId">[];
 }
 
@@ -256,6 +279,143 @@ export const GOLDEN_ACCOUNT: AccountProfile = {
   ]
 };
 
+
+/* ------------------------------------------------------------------ *
+ * The duplicated-usage account — P1, `docs/BUILD_PLAN_P1.md`.
+ *
+ * An ingestion replay billed one run of traffic twice. The rollup summed both
+ * copies, rating priced what the rollup said, and the invoice states that total
+ * faithfully — so every reconciliation boundary ties and the bill is still
+ * overstated. It is the first seeded account whose honest verdict is "not
+ * correct".
+ *
+ * Deliberately has **no usage step**: elevation stays at 100% in both zones, so
+ * the only anomaly in the series is the replay. `changeDate` sits outside the
+ * seeded periods and is inert.
+ * ------------------------------------------------------------------ */
+
+
+/**
+ * Same contract terms as the golden account, different contract records.
+ *
+ * `price_versions.price_version_id` is the primary key, so ids cannot be shared
+ * across accounts — and `emitSql` writes `INSERT OR REPLACE`, which means a
+ * collision would silently overwrite the other account's prices rather than
+ * fail. Uniqueness is asserted in `test/unit/seed.spec.ts`.
+ */
+const NW_WORKERS_PRICE = {
+  ...WORKERS_PRICE,
+  priceVersionId: "price-nw-workers-2026-01"
+} as const;
+
+const NW_WORKERS_AI_PRICE = {
+  ...WORKERS_AI_PRICE,
+  priceVersionId: "price-nw-workers-ai-2026-01"
+} as const;
+
+const NW_PRIMARY_ZONE = "zone-api-northwind";
+const NW_SECONDARY_ZONE = "zone-web-northwind";
+
+/** The replayed window: five days of primary-zone Workers traffic. */
+const REPLAYED_DATES = [
+  "2026-08-02",
+  "2026-08-03",
+  "2026-08-04",
+  "2026-08-05",
+  "2026-08-06"
+];
+
+export const DUPLICATE_USAGE_ACCOUNT: AccountProfile = {
+  seed: 20260914,
+
+  account: {
+    accountId: "dup-7741",
+    displayName: "Northwind Trading Co.",
+    planType: "Synthetic Growth",
+    currency: "USD",
+    taxStatus: "exempt",
+    primaryZoneId: NW_PRIMARY_ZONE,
+    primaryZoneName: "api.northwind.example"
+  },
+  secondaryZone: {
+    zoneId: NW_SECONDARY_ZONE,
+    zoneName: "www.northwind.example"
+  },
+
+  periods: ["2026-06", "2026-07", "2026-08"].map((p) => billingPeriod(p)),
+  comparisonPeriod: billingPeriod("2026-07"),
+  currentPeriod: billingPeriod("2026-08"),
+
+  zoneShare: {
+    [NW_PRIMARY_ZONE]: 75,
+    [NW_SECONDARY_ZONE]: 25
+  },
+
+  workers: {
+    price: NW_WORKERS_PRICE,
+    eventIdPrefix: "ue-workers",
+    /** Modest organic growth. The replay is what makes the bill jump. */
+    quantityByPeriod: {
+      "2026-06": 880_000_000,
+      "2026-07": 900_000_000,
+      "2026-08": 920_000_000
+    },
+    /** No step change on this account. */
+    elevationPercentByZone: {
+      [NW_PRIMARY_ZONE]: 100,
+      [NW_SECONDARY_ZONE]: 100
+    }
+  },
+
+  workersAi: {
+    price: NW_WORKERS_AI_PRICE,
+    eventIdPrefix: "ue-workersai",
+    quantityByPeriod: {
+      "2026-06": 1_900_000,
+      "2026-07": 2_000_000,
+      "2026-08": 2_100_000
+    },
+    elevationPercent: 100
+  },
+
+  subscriptionId: "sub-dup7741-growth",
+  subscriptionStartedOn: "2026-01-01",
+  platformFeeCents: cents(300_000), // $3,000
+  unauthorisedFixedLines: [
+    { serviceName: "R2", amountCents: cents(120_000) }, // $1,200
+    { serviceName: "D1", amountCents: cents(48_000) } // $480
+  ],
+
+  /** Outside the seeded periods: this account's usage never steps. */
+  changeDate: "2026-12-31",
+  changeHourUtc: 0,
+
+  duplicateRun: {
+    serviceName: SERVICE_WORKERS,
+    zoneId: NW_PRIMARY_ZONE,
+    dates: REPLAYED_DATES,
+    eventIdPrefix: "replay"
+  },
+
+  accountEvents: [
+    {
+      eventId: "dep-2210",
+      eventType: "deployment",
+      name: "checkout-api-v4",
+      zoneId: NW_PRIMARY_ZONE,
+      occurredAt: "2026-07-09T14:05:00Z",
+      metadata: "synthetic deployment record"
+    },
+    {
+      eventId: "cfg-905",
+      eventType: "configuration_change",
+      name: "usage-pipeline-backfill",
+      zoneId: NW_PRIMARY_ZONE,
+      occurredAt: "2026-08-02T03:12:00Z",
+      metadata: "synthetic configuration record"
+    }
+  ]
+};
 /**
  * Every account the seed emits, in emission order.
  *
@@ -263,4 +423,7 @@ export const GOLDEN_ACCOUNT: AccountProfile = {
  * their contents, because each profile carries its own PRNG seed. The
  * `reverse()` case in `test/unit/seed.spec.ts` is what holds that true.
  */
-export const ACCOUNT_PROFILES: readonly AccountProfile[] = [GOLDEN_ACCOUNT];
+export const ACCOUNT_PROFILES: readonly AccountProfile[] = [
+  GOLDEN_ACCOUNT,
+  DUPLICATE_USAGE_ACCOUNT
+];

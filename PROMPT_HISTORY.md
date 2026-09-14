@@ -1497,3 +1497,57 @@ leaves it untouched. It catches the draw-order mutation immediately.
 All five M6 acceptance criteria verified: seed reproducible, `abc123` hash
 unchanged at `2533052736db…`, golden fact block unchanged, reverse-order
 generation identical, no new Cloudflare service. 514 tests, up from 508.
+
+### P1 Milestone 7 — the duplicated-usage account, in data
+
+The scenario is now true in D1 and provable with no agent and no model.
+
+`dup-7741` (Northwind Trading Co.) carries an ingestion replay: five days of
+primary-zone Workers traffic copied with fresh event ids and identical
+`source_event_key`, timestamp, zone, quantity and unit. The copies are injected
+**before** the daily rollup, so they flow through `daily_usage` into the rated
+charges and onto the invoice.
+
+That ordering is the whole scenario. Reconciliation passes at all twelve
+boundaries — including `raw_usage_vs_daily_aggregate` — and the bill is still
+overstated by $914.60, which is 85% of the $1,079.60 variance. It is the first
+seeded account where every arithmetic check agrees and the invoice is wrong
+anyway, which is what shows why rule 7 has three clauses and not one.
+
+120 probable duplicate groups, 0 exact. Exact is not merely absent but
+impossible: `usage_events.event_id` is the primary key, so a repeated id cannot
+be stored. A replay assigning fresh ids to the same source records is what a
+duplicate actually looks like here.
+
+The account deliberately has no usage step — elevation stays at 100% in both
+zones — so the replay is the only anomaly. The change-point detector still
+accepts a weak downward shift when the replay window ends, correctly marked
+immaterial and low-confidence, with no correlated event near it. A
+`usage-pipeline-backfill` account event sits at the replay's start as a
+breadcrumb for a human, not as an assertion of cause.
+
+**A real defect surfaced, hidden by the seed file.** Both accounts were given
+`price-workers-2026-01`, which is a primary key. `emitSql` writes
+`INSERT OR REPLACE`, so the SQL file loaded cleanly while silently overwriting
+the golden account's price rows with the other account's — every rated charge on
+`abc123` would have lost its price. Only the D1 insert, which uses plain
+`INSERT`, rejected it. Fixed with per-account price ids and a test that checks id
+uniqueness across accounts over every id-bearing table, so the next account
+cannot reintroduce the collision in a different column.
+
+Mutation-checked three ways, and the first attempt was itself wrong: the perl
+replacements ate their `${...}` interpolations, so the "mutations" were garbage
+that failed at seed time rather than the changes I meant to test. Redone with
+escaping, the real results are — replay injected after the rollup: reconciliation
+fails and the lineage count is 24 against 48; copies keeping the original event
+id: rejected by the primary key, which is the unstorability claim demonstrated;
+copies given a fresh `source_event_key`: 0 duplicates found, because the
+fingerprint no longer groups them.
+
+Also de-churned `seed/emitSql.ts`. M6 ran prettier on it, which is not this
+repo's formatter, and reformatted the whole file with trailing commas against
+house style — 259 insertions for a twelve-line change. Re-applied by hand; the
+diff against the pre-M6 version is now three hunks.
+
+`abc123` byte-identical, golden fact block unchanged, both accounts coexisting in
+one database without contaminating each other. 533 tests, up from 514.

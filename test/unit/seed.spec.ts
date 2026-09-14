@@ -391,3 +391,41 @@ describe("the golden account is pinned", () => {
     );
   });
 });
+
+/**
+ * Primary keys are global, not per-account.
+ *
+ * `price_versions.price_version_id` is a primary key, and both accounts were
+ * initially given `price-workers-2026-01`. Two things hid it: `emitSql` writes
+ * `INSERT OR REPLACE`, so the seed file loaded cleanly while silently
+ * overwriting the golden account's prices with the other account's — and
+ * nothing compared ids across profiles. A D1 insert finally rejected it.
+ *
+ * This checks every id-bearing table, so the next account cannot reintroduce
+ * the same collision in a different column.
+ */
+describe("ids are unique across accounts", () => {
+  const all = ACCOUNT_PROFILES.map((p) => generateSyntheticData(p));
+
+  const idsOf = (pick: (d: (typeof all)[number]) => string[]) =>
+    all.flatMap(pick);
+
+  it.each([
+    ["price_versions", (d: (typeof all)[number]) => d.priceVersions.map((r) => r.priceVersionId)],
+    ["subscriptions", (d: (typeof all)[number]) => d.subscriptions.map((r) => r.subscriptionId)],
+    ["zones", (d: (typeof all)[number]) => d.zones.map((r) => r.zoneId)],
+    ["usage_events", (d: (typeof all)[number]) => d.usageEvents.map((r) => r.eventId)],
+    ["rated_charges", (d: (typeof all)[number]) => d.ratedCharges.map((r) => r.ratedChargeId)],
+    ["invoices", (d: (typeof all)[number]) => d.invoices.map((r) => r.invoiceId)],
+    ["invoice_lines", (d: (typeof all)[number]) => d.invoiceLines.map((r) => r.lineId)],
+    ["account_events", (d: (typeof all)[number]) => d.accountEvents.map((r) => r.eventId)],
+    ["accounts", (d: (typeof all)[number]) => [d.account.accountId]]
+  ])("%s ids collide with no other account", (_table, pick) => {
+    const ids = idsOf(pick);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("checks more than one account, or it proves nothing", () => {
+    expect(all.length).toBeGreaterThanOrEqual(2);
+  });
+});
