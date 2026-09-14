@@ -19,6 +19,26 @@ export function deterministicSummary(
   const variance = facts.variance_cents;
   const direction = variance === null ? "changed" : variance >= 0 ? "increased" : "decreased";
 
+  /**
+   * Duplicates are the answer to "is the bill correct?", so they belong in the
+   * finding rather than only in the evidence beneath it. Stated as a count and
+   * a consequence, never as a cause: nothing here claims the duplicates explain
+   * the variance, because the decomposition is what apportions that and it
+   * attributes by service, not by defect (invariant 8).
+   *
+   * Counts only. The financial impact is real but lives on the tool's own
+   * evidence card, not in `InvestigationFacts` — and P1 adds alongside the
+   * golden fact block rather than widening it.
+   */
+  const duplicateGroups =
+    facts.exact_duplicate_count !== null && facts.probable_duplicate_count !== null
+      ? facts.exact_duplicate_count + facts.probable_duplicate_count
+      : 0;
+  const duplicateNote =
+    duplicateGroups > 0
+      ? ` The invoice also carries ${duplicateGroups} duplicate usage group(s), so it cannot be confirmed as correct.`
+      : "";
+
   const finding =
     variance === null
       ? `The ${periods.currentPeriod} invoice could not be compared with ${periods.comparisonPeriod}.`
@@ -26,7 +46,8 @@ export function deterministicSummary(
         (facts.percentage_variance_display !== null
           ? ` (${facts.percentage_variance_display}%)`
           : "") +
-        `, from ${formatUsd(facts.comparison_total_cents ?? 0)} to ${formatUsd(facts.current_total_cents ?? 0)}.`;
+        `, from ${formatUsd(facts.comparison_total_cents ?? 0)} to ${formatUsd(facts.current_total_cents ?? 0)}.` +
+        duplicateNote;
 
   const lines: string[] = [];
   if (facts.workers_variance_cents) {

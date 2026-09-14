@@ -149,6 +149,27 @@ change_point_confidence  = high
 
 `change_date` is set only for an **accepted** change point; flat usage leaves all three null.
 
+### Second account — `dup-7741`, duplicated usage
+
+```
+current_total_cents      = 1225960      exact_duplicate_count    = 0
+comparison_total_cents   = 1118000      probable_duplicate_count = 120
+variance_cents           = 107960       reconciliation_status    = passed
+price_changed            = false        explained_percent        = 100
+change_date              = 2026-08-08   confidence               = low
+change_point_material    = false        invoiceAppearsCorrect    = false
+correlated_event_id      = null         state                    = unresolved
+```
+
+Read the right column together: reconciliation **passed**, the variance is
+**fully explained**, and the invoice is still **not correct**. That is the case
+the golden account cannot show, and the reason rule 7 has three clauses.
+`change_point_material = false` because the level steps *down* when the replayed
+window ends — a real change, and not a driver of the bill.
+
+Asserted by `test/integration/duplicateAgent.spec.ts` against
+`test/support/duplicateFacts.ts`.
+
 Tests assert these structured facts, never LLM prose.
 
 ## Definition of done

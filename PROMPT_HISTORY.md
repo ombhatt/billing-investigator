@@ -1605,3 +1605,49 @@ constant, since the header must load before any investigation exists. Verified
 live: `abc123` and `dup-7741` return 200, `xyz789` returns 404.
 
 550 tests, up from 533, five consecutive clean runs. Golden fact block unchanged.
+
+### P1 Milestone 9 — the verdict the system had never given
+
+A full agent turn on `dup-7741` now reaches `unresolved`, `invoiceAppearsCorrect:
+false`, confidence `low`, blocker `120 duplicate usage group(s) found` — while
+reconciliation passed at all twelve boundaries and 100% of the variance was
+explained. The second fact block is pinned in `CLAUDE.md` beside the golden one.
+
+Most of this needed no code at all. The verdict, the confidence, the blocker and
+the per-service duplicate checks were all already right — M7 and M8 had done the
+work, and `evaluateConfidence`'s doc comment had anticipated this exact case
+("a duplicate that the invoice bills") since P0. What the milestone mostly did
+was assert it.
+
+One thing did need changing. The deterministic finding read *"The 2026-08 invoice
+increased by $1,079.60 (9.7%), from $11,180.00 to $12,259.60."* — true, and the
+wrong lede. A reader asking "is this bill correct?" was told the bill rose, with
+the duplicate relegated to the evidence list below. The finding now carries the
+answer: *"The invoice also carries 120 duplicate usage group(s), so it cannot be
+confirmed as correct."*
+
+Stated as a count and a consequence, never as a cause. Nothing in the record
+supports "the duplicate explains the variance" — the decomposition apportions by
+service, not by defect — so invariant 8 is enforced by a test that fails on
+`caused`/`due to` anywhere near the word duplicate.
+
+Counts only, deliberately. The financial impact ($914.60) is real and sits on the
+tool's own evidence card, which the UI shows. Putting it in the finding would
+have meant adding a field to `InvestigationFacts`, and the scope gate I wrote in
+`CLAUDE.md` says P1 adds alongside the golden fact block rather than widening it.
+
+The mutation checks paid for themselves again. Removing the duplicate blocker
+fails three tests; dropping the new finding sentence fails one. The third
+mutation — forcing `duplicatesChecked` true, so an unrun check would read as a
+clean one — **passed the entire 560-test suite**. That clause is invariant 21
+exactly ("a check whose inputs are gone has not run"), it is belt-and-braces
+because a missing check also surfaces as a missing diagnostic, and nothing was
+holding it. `test/unit/completionDuplicates.spec.ts` now does, including the case
+that matters most: no duplicate step, null counts, and the invoice must not be
+waved through as though duplication had been ruled out.
+
+Also added a count guard to the "uses only figures that appear in the record"
+test, which iterates regex matches and would have passed by matching nothing.
+
+564 tests, three consecutive clean runs. Golden fact block unchanged; the golden
+account's finding gains no duplicate sentence, which is asserted.
