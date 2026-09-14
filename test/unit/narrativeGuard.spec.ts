@@ -337,3 +337,70 @@ describe("prose may not name a period that was not investigated", () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * Prose may rephrase a finding. It may not drop one.
+ *
+ * The guard checked that every figure was real, which a fluent summary of the
+ * variance satisfies while never saying the invoice is disputed. Seen live on
+ * the duplicated-usage account: the model wrote "the increase in workers
+ * movement is the primary contributor to the $1,079.60 variance" — every number
+ * verified, and no mention that the usage was billed twice. The finding is the
+ * sentence people read first.
+ */
+describe("a material finding cannot be omitted", () => {
+  const withDuplicates = {
+    ...emptyFacts(),
+    current_total_cents: 1225960,
+    comparison_total_cents: 1118000,
+    variance_cents: 107960,
+    exact_duplicate_count: 0,
+    probable_duplicate_count: 120,
+    reconciliation_status: "passed" as const,
+    explained_percent: 100
+  };
+
+  const context = {
+    facts: withDuplicates,
+    evidence: [],
+    invoiceAppearsCorrect: false
+  };
+
+  it("rejects prose that never mentions the duplicates", () => {
+    const result = safeNarrative(
+      "The August invoice rose by $1,079.60, driven by workers movement.",
+      "FALLBACK",
+      context
+    );
+    expect(result.usedModel).toBe(false);
+    expect(result.text).toBe("FALLBACK");
+    expect(result.violations.map((v) => v.kind)).toContain(
+      "omitted_material_finding"
+    );
+  });
+
+  it("accepts prose that does mention them", () => {
+    const result = safeNarrative(
+      "The August invoice rose by $1,079.60, and 120 duplicate usage groups were billed.",
+      "FALLBACK",
+      context
+    );
+    expect(result.usedModel).toBe(true);
+    expect(result.violations).toEqual([]);
+  });
+
+  it("asks nothing extra of a clean investigation", () => {
+    // No duplicates, nothing to omit: unchanged behaviour for the golden path.
+    const clean = {
+      ...withDuplicates,
+      probable_duplicate_count: 0,
+      exact_duplicate_count: 0
+    };
+    const result = safeNarrative(
+      "The August invoice rose by $1,079.60, driven by workers movement.",
+      "FALLBACK",
+      { ...context, facts: clean, invoiceAppearsCorrect: true }
+    );
+    expect(result.usedModel).toBe(true);
+  });
+});

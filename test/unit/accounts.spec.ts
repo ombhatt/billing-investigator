@@ -77,3 +77,16 @@ describe("account selection", () => {
     expect(DEFAULT_ACCOUNT_ID).toBe("abc123");
   });
 });
+
+describe("picker labels match the data", () => {
+  it("shows the display name the account actually carries", () => {
+    // The label is duplicated so a picker can render before any fetch. A
+    // duplicate that drifts is worse than no duplicate at all.
+    for (const profile of ACCOUNT_PROFILES) {
+      const listed = SELECTABLE_ACCOUNTS.find(
+        (a) => a.accountId === profile.account.accountId
+      );
+      expect(listed?.label).toBe(profile.account.displayName);
+    }
+  });
+});

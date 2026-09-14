@@ -31,7 +31,8 @@ export type NarrativeViolation =
   | { kind: "asserted_causation"; value: string }
   | { kind: "unearned_correctness"; value: string }
   | { kind: "confidence_claim"; value: string }
-  | { kind: "wrote_generated_sections"; value: string };
+  | { kind: "wrote_generated_sections"; value: string }
+  | { kind: "omitted_material_finding"; value: string };
 
 export interface NarrativeCheck {
   ok: boolean;
@@ -198,6 +199,31 @@ export function checkNarrative(
     if (claim && claim[1].toLowerCase() !== context.confidence.toLowerCase()) {
       violations.push({ kind: "confidence_claim", value: claim[0] });
     }
+  }
+
+  /**
+   * Prose is bounded by evidence, and equally it may not drop what the
+   * evidence found.
+   *
+   * The guard used to check only that every figure was real, which a fluent
+   * summary of the variance satisfies while never mentioning that the invoice
+   * is disputed. On the duplicated-usage account the model wrote "the increase
+   * in workers movement is the primary contributor to the $1,079.60 variance" —
+   * every number verified, and the reader is not told the bill was billed
+   * twice. The finding is the sentence people read first, so an omission there
+   * is not a smaller failure than a fabrication.
+   *
+   * Only material findings count: something that produced a blocker. A clean
+   * investigation has nothing to omit.
+   */
+  const duplicateGroups =
+    (context.facts.exact_duplicate_count ?? 0) +
+    (context.facts.probable_duplicate_count ?? 0);
+  if (duplicateGroups > 0 && !/duplicat/i.test(prose)) {
+    violations.push({
+      kind: "omitted_material_finding",
+      value: `${duplicateGroups} duplicate group(s) found but not mentioned`
+    });
   }
 
   if (context.rejectGeneratedSections) {

@@ -1,6 +1,8 @@
 import type { InvestigationRecord } from "../agent/types.js";
 
 export interface AgentState {
+  /** Server-owned. The account the next investigation opens on. */
+  accountId: string;
   investigation: InvestigationRecord | null;
   /** Server-owned; advanced by Reset. The UI reads it, never writes it. */
   generation: number;

@@ -22,6 +22,13 @@
 export interface SelectableAccount {
   accountId: string;
   /**
+   * What the picker shows. The authoritative display name lives in D1 and
+   * reaches the header from `get_account_context`; this is the same string,
+   * duplicated so a picker can be drawn before any account has been fetched.
+   * `test/unit/accounts.spec.ts` fails if the two ever disagree.
+   */
+  label: string;
+  /**
    * Where an investigation starts looking before the decomposition has run.
    *
    * Only ever a placeholder: `pickFocusService` replaces it with the largest
@@ -34,8 +41,12 @@ export interface SelectableAccount {
 }
 
 export const SELECTABLE_ACCOUNTS: readonly SelectableAccount[] = [
-  { accountId: "abc123", focusService: "Workers" },
-  { accountId: "dup-7741", focusService: "Workers" }
+  { accountId: "abc123", label: "Acme Corp.", focusService: "Workers" },
+  {
+    accountId: "dup-7741",
+    label: "Northwind Trading Co.",
+    focusService: "Workers"
+  }
 ];
 
 /** The account a session opens on before anyone chooses otherwise. */

@@ -136,6 +136,24 @@ body {
   flex-wrap: wrap;
 }
 .account-header--error { color: var(--bad); border-color: var(--bad); }
+/* Switching account is a reset, so the control sits with the account it
+   changes rather than beside the conversation it clears. */
+.account-header__picker { display: flex; align-items: center; gap: 8px; }
+.account-header__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.account-header__picker select {
+  font: inherit;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: inherit;
+}
+.account-header__picker select:disabled { opacity: 0.55; cursor: not-allowed; }
 .account-header__identity { display: flex; align-items: baseline; gap: 8px; }
 .account-header__name { font-weight: 600; }
 .account-header__id { color: var(--muted); }

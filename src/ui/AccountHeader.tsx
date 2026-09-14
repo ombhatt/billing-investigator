@@ -1,16 +1,74 @@
 import { formatUsd } from "../domain/money.js";
+import type { SelectableAccount } from "../agent/accounts.js";
 import type { AccountSummary } from "./types.js";
 
 interface Props {
   account: AccountSummary | null;
   error: string | null;
+  accounts: readonly SelectableAccount[];
+  selected: string;
+  busy: boolean;
+  onSelect: (accountId: string) => void;
 }
 
-export function AccountHeader({ account, error }: Props) {
+/**
+ * The picker renders from the static list, not from the fetched account, so it
+ * stays usable while an account is loading or has failed to load — which is
+ * exactly when someone wants to switch away from it.
+ */
+function AccountPicker({
+  accounts,
+  selected,
+  busy,
+  onSelect
+}: Pick<Props, "accounts" | "selected" | "busy" | "onSelect">) {
+  if (accounts.length < 2) return null;
+  return (
+    <div className="account-header__picker">
+      <label htmlFor="account-select" className="account-header__label">
+        Account
+      </label>
+      <select
+        id="account-select"
+        value={selected}
+        // Switching is a reset: the server clears the investigation and opens
+        // the next one on the chosen account. Disabled mid-turn so a reader
+        // cannot start a switch while a turn is still writing.
+        disabled={busy}
+        onChange={(event) => onSelect(event.target.value)}
+      >
+        {accounts.map((a) => (
+          <option key={a.accountId} value={a.accountId}>
+            {a.label} ({a.accountId})
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+export function AccountHeader({
+  account,
+  error,
+  accounts,
+  selected,
+  busy,
+  onSelect
+}: Props) {
+  const picker = (
+    <AccountPicker
+      accounts={accounts}
+      selected={selected}
+      busy={busy}
+      onSelect={onSelect}
+    />
+  );
+
   if (error) {
     return (
       <section className="account-header account-header--error" role="alert">
         <p>Could not load the account: {error}</p>
+        {picker}
       </section>
     );
   }
@@ -20,15 +78,15 @@ export function AccountHeader({ account, error }: Props) {
       <section className="account-header" aria-busy="true">
         <span className="skeleton skeleton--line" aria-hidden="true" />
         <span className="visually-hidden">Loading account…</span>
+        {picker}
       </section>
     );
   }
 
   return (
     <section className="account-header" aria-label="Account under investigation">
+      {picker}
       <div className="account-header__identity">
-        {/* A single-account P0, so this is a display of the bound account
-            rather than a selector. */}
         <span className="account-header__name">{account.displayName}</span>
         <code className="mono account-header__id">{account.accountId}</code>
       </div>

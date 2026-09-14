@@ -135,6 +135,30 @@ npm run deploy
 | Variance explained | 100% |
 | Confidence | high |
 
+### The second account, where the answer is no
+
+Switch the **Account** picker to *Northwind Trading Co. (`dup-7741`)* and ask the
+same question. An ingestion replay billed five days of traffic twice.
+
+| | |
+|---|---|
+| July total | $11,180.00 |
+| August total | $12,259.60 |
+| Variance | **+$1,079.60 (9.7%)** |
+| Price changed | no |
+| Duplicates | **0 exact, 120 probable** — $914.60, 85% of the rise |
+| Reconciliation | **passed** at all twelve boundaries |
+| Variance explained | 100% |
+| Verdict | **Unresolved** — the invoice is *not* confirmed correct |
+| Confidence | low |
+
+Read the last four rows together. The arithmetic all agrees and the bill is still
+wrong, which is why "appears correct" needs a passing reconciliation **and** the
+variance explained **and** no unresolved discrepancy — not any one of them.
+
+Switching account always starts a fresh investigation: an investigation binds to
+one account when it opens and is never re-pointed mid-flight.
+
 **Then ask a follow-up** — *"Could the usage have been duplicated?"* It answers
 from persisted evidence with **no new tool calls**. Refresh the page and the
 investigation is restored from the Durable Object.

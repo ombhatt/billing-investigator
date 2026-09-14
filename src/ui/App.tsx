@@ -5,13 +5,15 @@ import { AccountHeader } from "./AccountHeader.js";
 import { Conversation } from "./Conversation.js";
 import { InvestigationPanel } from "./InvestigationPanel.js";
 import { resolveSessionName } from "./session.js";
+import {
+  DEFAULT_ACCOUNT_ID,
+  SELECTABLE_ACCOUNTS
+} from "../agent/accounts.js";
 import type { AccountSummary, AgentState, TabId } from "./types.js";
 
-const ACCOUNT_ID = "abc123";
-
-/** PRD §7.1. */
-const SUGGESTED_PROMPT =
-  "Why is account abc123's August invoice higher than July, and is the bill correct?";
+/** PRD §7.1, per account. */
+const suggestedPrompt = (accountId: string) =>
+  `Why is account ${accountId}'s August invoice higher than July, and is the bill correct?`;
 
 export default function App() {
   // One investigation per browser, not one per deployment. This name is the
@@ -39,6 +41,9 @@ export default function App() {
     experimental_throttle: 100
   });
 
+  // Server-owned: the picker asks for a change, the agent decides and syncs it
+  // back. Before the socket is up there is no state, so the default stands in.
+  const accountId = agent.state?.accountId ?? DEFAULT_ACCOUNT_ID;
   const investigation = agent.state?.investigation ?? null;
   const busy = status === "streaming" || status === "submitted";
   // Sending before the socket is open drops the message silently.
@@ -46,7 +51,9 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/accounts/${ACCOUNT_ID}`)
+    setAccount(null);
+    setAccountError(null);
+    fetch(`/api/accounts/${accountId}`)
       .then(async (response) => {
         const body = await response.json();
         if (cancelled) return;
@@ -65,7 +72,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [accountId]);
 
   // Follow the investigation as it progresses, but never override a tab the
   // reader chose themselves mid-run.
@@ -92,7 +99,15 @@ export default function App() {
     [canSend, sendMessage]
   );
 
-  const resetDemo = useCallback(async () => {
+  /**
+   * Reset, and optionally switch account in the same breath.
+   *
+   * They are one server operation because an investigation cannot change the
+   * account it is bound to partway through. Asking for the switch through the
+   * agent rather than setting state here keeps the record server-owned.
+   */
+  const resetDemo = useCallback(
+    async (nextAccountId?: string) => {
     // Clears the conversation and this agent's investigation record only.
     // Seeded billing data in D1 is never touched — every tool is read-only.
     //
@@ -109,11 +124,16 @@ export default function App() {
       // request silently falls through to the SDK's own handler.
       const target = new URL(agent.getHttpUrl());
       target.pathname = `${target.pathname.replace(/\/+$/, "")}/reset-investigation`;
+      // A query parameter, not a body: the server's reset path must stay
+      // synchronous up to its own setState.
+      if (nextAccountId) target.searchParams.set("account", nextAccountId);
       await fetch(target, { method: "POST" });
     } catch {
       // The conversation is already cleared; the record clears on the next ask.
     }
-  }, [agent, clearHistory]);
+    },
+    [agent, clearHistory]
+  );
 
   const selectTab = useCallback((next: TabId) => {
     autoTab.current = false;
@@ -138,13 +158,20 @@ export default function App() {
             />
             {connected ? "Connected" : "Connecting…"}
           </span>
-          <button type="button" className="secondary" onClick={resetDemo}>
+          <button type="button" className="secondary" onClick={() => resetDemo()}>
             Reset demo
           </button>
         </div>
       </header>
 
-      <AccountHeader account={account} error={accountError} />
+      <AccountHeader
+        account={account}
+        error={accountError}
+        accounts={SELECTABLE_ACCOUNTS}
+        selected={accountId}
+        busy={busy}
+        onSelect={(next) => resetDemo(next)}
+      />
 
       <div className="columns">
         <section className="conversation" aria-label="Conversation">
@@ -153,8 +180,8 @@ export default function App() {
             busy={busy}
             error={error ? "The agent could not complete that turn." : null}
             onRetry={() => lastQuestion && submit(lastQuestion)}
-            suggestedPrompt={SUGGESTED_PROMPT}
-            onSuggested={() => submit(SUGGESTED_PROMPT)}
+            suggestedPrompt={suggestedPrompt(accountId)}
+            onSuggested={() => submit(suggestedPrompt(accountId))}
             canSend={canSend}
           />
 

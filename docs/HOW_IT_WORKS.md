@@ -102,6 +102,36 @@ The same seven steps, in detail:
 
 The model touches steps 1, 3 and 7. Nothing in between.
 
+## The second account, where the answer is no
+
+Everything above describes an invoice that turns out to be right. A tool that can
+only ever agree with the bill is not much of an investigator, so there is a
+second seeded account — **Northwind Trading Co.** — where the honest answer is
+different.
+
+Northwind's ingestion pipeline replayed five days of traffic. The same requests
+were recorded twice, under fresh record ids. The rollup added both copies
+together, the rating engine priced what the rollup said, and the invoice states
+that total faithfully.
+
+So the bill is **arithmetically perfect and substantively wrong**:
+
+| | |
+|---|---|
+| Reconciliation | **passes** — all twelve boundaries tie to the cent |
+| Variance explained | **100%** |
+| Duplicates found | **120 groups**, worth $914.60 |
+| Verdict | **not correct**, confidence low |
+
+That combination is why the correctness test has three parts rather than one.
+Rebuilding the bill and getting the same number back proves the arithmetic was
+done correctly. It cannot tell you the inputs were counted twice — only the
+duplicate check does that, and the invoice is refused on its word even though
+every sum agrees.
+
+Switch between the two accounts with the picker above the conversation. Doing so
+always starts a fresh investigation: an investigation is bound to one account
+when it opens and cannot be pointed at another halfway through.
 ---
 
 ## What each Cloudflare piece does

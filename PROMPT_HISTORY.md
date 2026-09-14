@@ -1651,3 +1651,46 @@ test, which iterates regex matches and would have passed by matching nothing.
 
 564 tests, three consecutive clean runs. Golden fact block unchanged; the golden
 account's finding gains no duplicate sentence, which is asserted.
+
+### P1 Milestone 10 — choosing an account, and the demo
+
+The picker lives in the account header rather than beside the conversation,
+because it changes the account it sits next to. Switching calls the same
+server-owned reset M8 built, so a switch always starts a fresh investigation —
+structurally, not by convention. The suggested prompt, the header and the invoice
+list all follow the selection, which comes from synced server state rather than
+local UI state.
+
+`SELECTABLE_ACCOUNTS` gained a display label so the picker can render before any
+account has been fetched. That duplicates the display name held in D1, so a test
+fails if the two ever disagree — a duplicate that drifts is worse than no
+duplicate.
+
+Driving it live found the last real defect of P1.1, and it only appears with the
+real model running. The narrative guard checked that every figure in the model's
+prose was evidence-backed, which a fluent summary of the variance satisfies while
+never mentioning that the invoice is disputed. On `dup-7741` the model wrote *"The
+increase in workers movement is the primary contributor to the $1,079.60
+variance"* — every number verified, nothing fabricated, and a reader is not told
+the usage was billed twice. The deterministic sentence M9 added had been
+overwritten by a rephrasing that dropped it.
+
+The deterministic sections still carried it — the Unresolved badge, low
+confidence, the duplicate count in the facts grid, Outstanding, the next step —
+so nobody was misled. But the finding is the sentence people read first, and an
+omission there is not a smaller failure than a fabrication.
+
+So invariant 25 gained its other half: prose is bounded by evidence, and equally
+may not drop what the evidence found. `omitted_material_finding` rejects prose
+that never mentions duplicates when duplicates exist, and only when they exist —
+a clean investigation has nothing to omit, and the golden path is unchanged.
+Verified live: the model's rephrasing is now refused and the deterministic
+finding ships.
+
+Both accounts driven end to end in the browser. `abc123` still reaches "Invoice
+appears correct", high confidence, dep-1842, 100% explained. `dup-7741` reaches
+Unresolved, low confidence, 120 duplicate groups, reconciliation passed. Seeded
+billing data identical after every reset and switch.
+
+568 tests. One flaky failure appeared in a run taken while the dev server was
+still running; three subsequent runs were clean.
