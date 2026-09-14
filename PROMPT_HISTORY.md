@@ -1551,3 +1551,57 @@ diff against the pre-M6 version is now three hunks.
 
 `abc123` byte-identical, golden fact block unchanged, both accounts coexisting in
 one database without contaminating each other. 533 tests, up from 514.
+
+### P1 Milestone 8 — the account stops being a constant
+
+The highest-risk milestone in the plan, and the only one that touches a security
+invariant. `INVESTIGATION_ACCOUNT_ID` was a module constant, which made rule 5
+true by construction and therefore untested — there was only ever one account to
+ask for.
+
+The account is now server-owned state, bound once when an investigation opens.
+Two decisions carry the guarantee:
+
+**The runner is built from `opened.accountId`, never from session state.** Tool
+arguments are built from `record.accountId` by `inputFor`, and the runner's
+`investigationAccountId` is what `createTool` compares them against. Reading the
+second from anywhere but the record would let a switch made mid-investigation
+redirect a turn already in flight.
+
+**Selecting an account is the same operation as a reset.** An investigation
+cannot change the account it is bound to partway through, so offering the two
+separately would invite exactly that. Folding them together makes M10's
+"switching account starts a new investigation" structural rather than a rule.
+
+`src/agent/accounts.ts` is the selectable-account allowlist, deliberately the
+same shape as the tool allowlist: a client-supplied name becomes one of ours or
+is rejected. It is selection, not authorisation — there is no auth by design and
+every account is synthetic — and the docblock says so, because a list like this
+invites being mistaken for an access control.
+
+A flakiness scare turned out to be worth following. The first implementation took
+the account from a JSON body, which put `await request.json()` into the reset
+path. Three full-suite runs gave 10 failures, then 0, then 1, while the
+pre-change baseline was 3/3 clean — and both flaky tests were reset-and-broadcast
+tests. `server.ts` documents that path as needing no yield point between reading
+the generation and writing it. The read and write were still adjacent, so the
+documented property held, but the new yield changed interleaving around it.
+Moved the account to a query parameter, which removes the await entirely; five
+consecutive full-suite runs are clean. Ten runs had also been clean before the
+change, so this is not proof the body was the cause — it is a smaller change that
+cannot have the problem.
+
+Mutation-checked three ways. Removing the scope check from `createTool` fails
+three tests; making `selectAccountId` return the client's string fails the
+unit test; building the runner from session state instead of the record fails the
+live-switch test with zero completed plan steps, because every tool is then
+denied against arguments built for its own account. That third one needed a test
+driving the real `onChatMessage` — a directly-constructed `ToolRunner` cannot see
+the server's wiring, and my first pass at the denial matrix could not have caught
+it.
+
+`/api/accounts/:id` is now scoped to the selectable list rather than a single
+constant, since the header must load before any investigation exists. Verified
+live: `abc123` and `dup-7741` return 200, `xyz789` returns 404.
+
+550 tests, up from 533, five consecutive clean runs. Golden fact block unchanged.

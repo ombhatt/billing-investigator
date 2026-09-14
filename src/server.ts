@@ -10,6 +10,12 @@ import {
 } from "./agent/investigationStore.js";
 import { newInvestigation, runInvestigationTurn } from "./agent/loop.js";
 import { DeterministicModelClient, type ModelClient } from "./agent/modelClient.js";
+import {
+  DEFAULT_ACCOUNT_ID,
+  focusServiceFor,
+  isSelectableAccount,
+  selectAccountId
+} from "./agent/accounts.js";
 import { assertServerOwnedState } from "./agent/stateOwnership.js";
 import { renderSummary } from "./agent/summary.js";
 import { isTerminal } from "./agent/stateMachine.js";
@@ -18,15 +24,19 @@ import { WorkersAiModelClient } from "./agent/workersAiClient.js";
 import { getAccountContext } from "./tools/getAccountContext.js";
 import { ToolRunner } from "./tools/registry.js";
 
-/**
- * Milestone 4 still binds one investigation to the single seeded account.
- * Multi-account selection is out of P0 scope.
- */
-const INVESTIGATION_ACCOUNT_ID = "abc123";
-const FOCUS_SERVICE = "Workers";
 const DEFAULT_MODEL_ID = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 interface AgentState {
+  /**
+   * The account this session opens investigations on. Server-owned like the
+   * rest of this state: a client asks for it through `reset-investigation`, and
+   * only `selectAccountId` decides what is actually stored.
+   *
+   * This is what the *next* investigation will bind. A running investigation
+   * carries its own `accountId` on the record and is never re-read from here,
+   * so changing the selection cannot redirect a turn already in flight.
+   */
+  accountId: string;
   investigation: InvestigationRecord | null;
   /**
    * Advanced by every reset. A turn may only commit into the generation it
@@ -44,11 +54,20 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
   // Synced to the UI and persisted by the Durable Object, which is what
   // restores plan, evidence and summary after a refresh. Bulk tool payloads are
   // written to this.sql instead so state stays small.
-  initialState: AgentState = { investigation: null, generation: 0 };
+  initialState: AgentState = {
+    accountId: DEFAULT_ACCOUNT_ID,
+    investigation: null,
+    generation: 0
+  };
 
   /** State persisted before generations existed carries no counter. */
   private currentGeneration(): number {
     return this.state?.generation ?? 0;
+  }
+
+  /** State persisted before accounts were selectable carries no account. */
+  private currentAccountId(): string {
+    return this.state?.accountId ?? DEFAULT_ACCOUNT_ID;
   }
 
   /**
@@ -61,16 +80,34 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
     assertServerOwnedState(source);
   }
 
-  /** Server-owned reset: the client asks, it does not write the state itself. */
+  /**
+   * Server-owned reset: the client asks, it does not write the state itself.
+   *
+   * Choosing an account is the same operation, deliberately. An investigation
+   * cannot change the account it is bound to partway through, so offering the
+   * two separately would invite exactly that; folding them together makes
+   * "switching account starts a new investigation" structural rather than a
+   * rule someone has to remember.
+   *
+   * The account arrives as a query parameter rather than a JSON body so this
+   * handler stays synchronous up to `setState`. Awaiting a body here would put
+   * a yield point between reading the generation and writing it, which is the
+   * one thing the reset path must not have.
+   */
   async onRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (
       request.method === "POST" &&
       url.pathname.split("/").pop() === "reset-investigation"
     ) {
+      // Client input, treated as such: `selectAccountId` is the only thing that
+      // decides what is stored, so an unrecognised name never reaches a record.
+      const requested = url.searchParams.get("account");
+
       // Advancing the generation is what makes the reset stick: a turn already
       // parked on a model call can no longer write its record back afterwards.
       this.setState({
+        accountId: selectAccountId(requested, this.currentAccountId()),
         investigation: null,
         generation: nextGeneration(this.currentGeneration())
       });
@@ -106,7 +143,11 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
         this.sql(strings, ...(values as (string | number | boolean | null)[])) as never,
       readGeneration: () => this.currentGeneration(),
       setState: (investigation, generation) =>
-        this.setState({ investigation, generation })
+        this.setState({
+          accountId: this.currentAccountId(),
+          investigation,
+          generation
+        })
     });
   }
 
@@ -162,21 +203,27 @@ export class BillingInvestigatorAgent extends AIChatAgent<Env, AgentState> {
       if (!stillOurs()) return this.discardedTurn();
       text = followUp.text;
     } else {
+      // The account is bound once, when the investigation opens, and every
+      // later read comes from the record. A resumed investigation keeps the
+      // account it opened on even if the session's selection has since moved.
       const opened =
         existing ??
         newInvestigation(
           crypto.randomUUID(),
-          INVESTIGATION_ACCOUNT_ID,
-          FOCUS_SERVICE
+          this.currentAccountId(),
+          focusServiceFor(this.currentAccountId())
         );
+      // `opened.accountId`, never `this.state.accountId`: this is the value
+      // `createTool` compares every call against, so reading it from anywhere
+      // but the bound record would be the hole rule 5 exists to close.
       const runner = new ToolRunner(
-        { db: this.env.DB, investigationAccountId: INVESTIGATION_ACCOUNT_ID },
+        { db: this.env.DB, investigationAccountId: opened.accountId },
         { store, investigationId: opened.investigationId }
       );
       const record = await runInvestigationTurn(opened, question, {
         runner,
         model,
-        focusService: FOCUS_SERVICE
+        focusService: opened.focusService
       });
 
       // The tool calls genuinely ran, so their envelopes are kept either way —
@@ -238,12 +285,23 @@ export default {
   async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
 
-    // Account header data, needed before any investigation has run.
+    // Account header data, needed before any investigation has run, so it
+    // cannot be scoped to a bound investigation. Scoped to the selectable list
+    // instead: this route reads public synthetic context for an account the
+    // *server* offers, and never on behalf of a running investigation.
     const accountMatch = url.pathname.match(/^\/api\/accounts\/([^/]+)$/);
     if (accountMatch) {
+      const accountId = decodeURIComponent(accountMatch[1]);
+      if (!isSelectableAccount(accountId)) {
+        return errorResponse(
+          "ACCOUNT_NOT_FOUND",
+          "No such account.",
+          404
+        );
+      }
       const result = await getAccountContext(
-        { accountId: decodeURIComponent(accountMatch[1]) },
-        { db: env.DB, investigationAccountId: INVESTIGATION_ACCOUNT_ID }
+        { accountId },
+        { db: env.DB, investigationAccountId: accountId }
       );
       if ("error" in result) {
         const status =
