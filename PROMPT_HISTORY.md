@@ -1448,3 +1448,52 @@ single PRNG stream, surplus-only quantity, and the `unresolved` transition.
 
 No numbers invented for the second fact block — its *shape* is pinned in the plan
 and the figures wait for the seed that produces them.
+
+### P1 Milestone 6 — seed parameterisation with no golden drift
+
+First implementation milestone of P1. Its entire purpose is to make the second
+account impossible to add unsafely, so it ships while the second account still
+does not exist.
+
+`generateSyntheticData` closed over a single `ACCOUNT` const at ~25 sites and one
+`mulberry32(SEED)` stream. Now it takes an `AccountProfile` carrying identity,
+zones, periods, quantities, prices, subscription, fixed lines, the change story
+and the account events — and reads no account-specific module constant at all.
+Each profile carries its own seed, which is what makes generation order unable to
+change any account's content.
+
+Two things were deliberately *not* generalised. The traffic-shape constants
+(diurnal curve, weekday/weekend weights, jitter band) stay module-level: they are
+read-only and identical per account, and the PRNG is the only thing that must not
+be shared. And `workersSlots` / `workersAiSlots` stay separate functions rather
+than one generic slot builder — Workers AI carries neither the zone share nor the
+diurnal weight, so unifying them would have relied on those factors cancelling
+inside `distribute`. Relying on a cancellation is how seeded bytes move.
+
+The seam was chosen from the call sites: 25 of 26 call `generateSyntheticData()`
+with no argument, so the profile parameter defaults to `GOLDEN_ACCOUNT` and only
+the one `generateSyntheticData(1)` in `seed.spec.ts` changed. `emitSql` became
+variadic — `emitSql(dataset)` still reads the same — with the DELETEs hoisted
+above the per-account loop so re-seeding cannot wipe the account emitted before.
+
+Mutation-checked four ways: a shared PRNG stream (the pre-M6 behaviour) fails
+two tests; an account id not bound to the profile fails the row-binding test; an
+extra draw before `workersSlots` fails the pinned hash.
+
+That third mutation is the interesting one. Run against `seed.spec.ts` alone it
+initially passed everything, and against the full unit suite it failed exactly
+one test in `zoneGrowth.spec.ts`. The golden fact block never noticed — `distribute`
+rescales every month to its exact target, so invoice totals are invariant to the
+daily shape underneath them. Worth knowing: the fact block pins the money, not
+the shape.
+
+Worse, `seed.spec.ts`'s "byte-identical across runs" compares two runs of the
+*same* code, so it agreed with itself throughout a mutation that moved every
+quantity in the file. Nothing held the generator's output to a value recorded
+before a change. Added a pinned SHA-256 for the golden account's SQL — scoped to
+that account rather than to `.seed/golden.sql`, so M7 appending a second account
+leaves it untouched. It catches the draw-order mutation immediately.
+
+All five M6 acceptance criteria verified: seed reproducible, `abc123` hash
+unchanged at `2533052736db…`, golden fact block unchanged, reverse-order
+generation identical, no new Cloudflare service. 514 tests, up from 508.

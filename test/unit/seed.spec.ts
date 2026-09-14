@@ -1,6 +1,12 @@
 import { per } from "./../support/values.js";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { generateSyntheticData } from "../../seed/generateSyntheticData.js";
+import {
+  ACCOUNT_PROFILES,
+  GOLDEN_ACCOUNT,
+  type AccountProfile
+} from "../../seed/constants.js";
 import { emitSql } from "../../seed/emitSql.js";
 import { consumedInPeriod } from "../../src/domain/invoice.js";
 import { toBillableUsageRecords } from "../../src/domain/billableUsageView.js";
@@ -15,7 +21,9 @@ describe("seed reproducibility", () => {
   });
 
   it("produces different data for a different seed", () => {
-    expect(emitSql(generateSyntheticData(1))).not.toBe(emitSql(dataset));
+    expect(
+      emitSql(generateSyntheticData({ ...GOLDEN_ACCOUNT, seed: 1 }))
+    ).not.toBe(emitSql(dataset));
   });
 
   it("stores no prewritten conclusion anywhere in the data", () => {
@@ -258,5 +266,128 @@ describe("public API-shaped adapter", () => {
   it("accumulates contracted cost across the period", () => {
     const last = records[records.length - 1];
     expect(last.CumulatedContractedCost).toBeGreaterThan(last.ContractedCost);
+  });
+});
+
+/**
+ * The property that makes a second account safe to add.
+ *
+ * The generator used to close over one `ACCOUNT` const and one
+ * `mulberry32(SEED)` stream. Drawing a second account from that stream would
+ * have made every account's content depend on the order they were generated
+ * in — silently moving a golden fact block that the domain, the tools and the
+ * agent all assert independently. These hold the profiles apart.
+ * `docs/BUILD_PLAN_P1.md` Milestone 6.
+ */
+describe("account profiles are independent", () => {
+  /** A second profile that differs in identity and seed but nothing else. */
+  const OTHER: AccountProfile = {
+    ...GOLDEN_ACCOUNT,
+    seed: 777,
+    account: {
+      ...GOLDEN_ACCOUNT.account,
+      accountId: "zzz999",
+      displayName: "Other Corp.",
+      primaryZoneId: "zone-api-other",
+      primaryZoneName: "api.other.example"
+    },
+    secondaryZone: { zoneId: "zone-web-other", zoneName: "www.other.example" },
+    zoneShare: { "zone-api-other": 75, "zone-web-other": 25 },
+    workers: {
+      ...GOLDEN_ACCOUNT.workers,
+      elevationPercentByZone: { "zone-api-other": 228, "zone-web-other": 115 }
+    },
+    subscriptionId: "sub-zzz999-enterprise",
+    accountEvents: []
+  };
+
+  it("generates the golden account identically whatever order it is drawn in", () => {
+    // The failure this catches: a shared PRNG, where generating the other
+    // account first advances the stream and changes abc123's every quantity.
+    const goldenFirst = [GOLDEN_ACCOUNT, OTHER].map((p) =>
+      generateSyntheticData(p)
+    );
+    const goldenLast = [OTHER, GOLDEN_ACCOUNT].map((p) =>
+      generateSyntheticData(p)
+    );
+
+    expect(emitSql(goldenFirst[0])).toBe(emitSql(goldenLast[1]));
+    expect(emitSql(goldenFirst[1])).toBe(emitSql(goldenLast[0]));
+  });
+
+  it("gives a second account its own data, not a copy of the first", () => {
+    const other = generateSyntheticData(OTHER);
+    expect(other.account.accountId).toBe("zzz999");
+    expect(emitSql(other)).not.toBe(emitSql(dataset));
+    // Same targets, different stream: the monthly total is still exact, but the
+    // daily shape underneath it differs.
+    expect(consumedInPeriod(other.dailyUsage, "Workers", per("2026-08"))).toBe(
+      1_580_000_000
+    );
+    const goldenDay = dataset.dailyUsage.find(
+      (r) => r.serviceName === "Workers" && r.usageDate === "2026-08-20"
+    )!;
+    const otherDay = other.dailyUsage.find(
+      (r) => r.serviceName === "Workers" && r.usageDate === "2026-08-20"
+    )!;
+    expect(otherDay.quantity).not.toBe(goldenDay.quantity);
+  });
+
+  it("binds every generated row to its own account", () => {
+    const other = generateSyntheticData(OTHER);
+    const ids = new Set<string>([
+      ...other.usageEvents.map((e) => e.accountId),
+      ...other.dailyUsage.map((r) => r.accountId),
+      ...other.ratedCharges.map((r) => r.accountId),
+      ...other.invoices.map((i) => i.accountId),
+      ...other.priceVersions.map((p) => p.accountId),
+      ...other.subscriptions.map((s) => s.accountId),
+      ...other.zones.map((z) => z.accountId)
+    ]);
+    expect([...ids]).toEqual(["zzz999"]);
+  });
+
+  it("emits every profile in the registry, deletes once", () => {
+    const sql = emitSql(
+      ...ACCOUNT_PROFILES.map((p) => generateSyntheticData(p))
+    );
+    for (const profile of ACCOUNT_PROFILES) {
+      expect(sql).toContain(`'${profile.account.accountId}'`);
+    }
+    // One DELETE per table regardless of account count, or re-seeding a
+    // populated database would wipe the account emitted before it.
+    expect(sql.match(/DELETE FROM usage_events;/g)).toHaveLength(1);
+  });
+
+  it("still emits the golden account as the registry's first entry", () => {
+    expect(ACCOUNT_PROFILES[0]).toBe(GOLDEN_ACCOUNT);
+  });
+});
+
+/**
+ * The golden account's bytes, pinned to a recorded value.
+ *
+ * "Byte-identical across runs" above compares two runs of the *same* code, so
+ * it cannot see a change to the generator — it agreed with itself throughout a
+ * mutation that moved every quantity in the file. Nothing held the output to a
+ * value recorded *before* a change until this test.
+ *
+ * Deliberately scoped to the golden account rather than `.seed/golden.sql`, so
+ * that adding a second profile — which appends rows and changes the file's
+ * hash — leaves it untouched. What must not move is `abc123`.
+ *
+ * If this fails, the generator changed. Either that was the point, in which
+ * case the golden fact block in `CLAUDE.md` needs re-verifying before the hash
+ * is updated, or a refactor moved data it should not have.
+ */
+describe("the golden account is pinned", () => {
+  const GOLDEN_SQL_SHA256 =
+    "9a11702d329896af51fb0e5652dde27f69ce9bccf53452baa8220cf579238af4";
+
+  it("emits exactly the recorded bytes", () => {
+    const sql = emitSql(generateSyntheticData(GOLDEN_ACCOUNT));
+    expect(createHash("sha256").update(sql).digest("hex")).toBe(
+      GOLDEN_SQL_SHA256
+    );
   });
 });

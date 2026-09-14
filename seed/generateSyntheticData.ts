@@ -1,11 +1,8 @@
 import {
-  billingPeriod,
-  cents,
   isoDate,
   quantity,
   sumQuantities,
   type BillingPeriod,
-  type Cents,
   type Quantity
 } from "../src/domain/units.js";
 import {
@@ -28,31 +25,13 @@ import type {
 } from "../src/domain/types.js";
 import { intBetween, mulberry32 } from "./prng.js";
 import {
-  ACCOUNT,
-  CHANGE_DATE,
-  CHANGE_HOUR_UTC,
-  D1_CENTS,
   DAY_JITTER,
-  DEPLOYMENT_EVENT,
   DIURNAL_WEIGHTS,
   EVENT_MINUTE_UTC,
-  PERIODS,
-  PLATFORM_FEE_CENTS,
-  R2_CENTS,
-  SECONDARY_ZONE,
-  SEED,
-  SERVICE_WORKERS,
-  SERVICE_WORKERS_AI,
-  SUBSCRIPTION_ID,
+  GOLDEN_ACCOUNT,
   WEEKDAY_WEIGHT,
   WEEKEND_WEIGHT,
-  WORKERS_AI_ELEVATION_PERCENT,
-  WORKERS_AI_PRICE,
-  WORKERS_AI_QUANTITY,
-  WORKERS_PRICE,
-  WORKERS_QUANTITY,
-  ZONE_ELEVATION_PERCENT,
-  ZONE_SHARE
+  type AccountProfile
 } from "./constants.js";
 
 interface Slot {
@@ -62,10 +41,10 @@ interface Slot {
   weight: number;
 }
 
-function isElevated(date: string, hour: number): boolean {
-  if (date < CHANGE_DATE) return false;
-  if (date > CHANGE_DATE) return true;
-  return hour >= CHANGE_HOUR_UTC;
+function isElevated(profile: AccountProfile, date: string, hour: number): boolean {
+  if (date < profile.changeDate) return false;
+  if (date > profile.changeDate) return true;
+  return hour >= profile.changeHourUtc;
 }
 
 function timestampFor(date: string, hour: number): string {
@@ -99,6 +78,7 @@ function distribute(target: number, slots: Slot[]): Quantity[] {
   return quantities;
 }
 
+
 function dayWeights(period: BillingPeriod, random: () => number): Map<string, number> {
   const weights = new Map<string, number>();
   for (const date of periodDates(period)) {
@@ -108,17 +88,24 @@ function dayWeights(period: BillingPeriod, random: () => number): Map<string, nu
   return weights;
 }
 
-function workersSlots(period: BillingPeriod, random: () => number): Slot[] {
+/** Hourly, across both zones, weighted by the diurnal curve. */
+function workersSlots(
+  profile: AccountProfile,
+  period: BillingPeriod,
+  random: () => number
+): Slot[] {
   const perDay = dayWeights(period, random);
   const slots: Slot[] = [];
   for (const date of periodDates(period)) {
     const dayWeight = perDay.get(date)!;
-    for (const zoneId of [ACCOUNT.primaryZoneId, SECONDARY_ZONE.zoneId]) {
-      const share = ZONE_SHARE[zoneId as keyof typeof ZONE_SHARE];
-      const elevation =
-        ZONE_ELEVATION_PERCENT[zoneId as keyof typeof ZONE_ELEVATION_PERCENT];
+    for (const zoneId of [
+      profile.account.primaryZoneId,
+      profile.secondaryZone.zoneId
+    ]) {
+      const share = profile.zoneShare[zoneId];
+      const elevation = profile.workers.elevationPercentByZone[zoneId];
       for (let hour = 0; hour < 24; hour++) {
-        const percent = isElevated(date, hour) ? elevation : 100;
+        const percent = isElevated(profile, date, hour) ? elevation : 100;
         slots.push({
           date,
           zoneId,
@@ -131,13 +118,27 @@ function workersSlots(period: BillingPeriod, random: () => number): Slot[] {
   return slots;
 }
 
-function workersAiSlots(period: BillingPeriod, random: () => number): Slot[] {
+/**
+ * One slot a day at noon, primary zone only.
+ *
+ * Deliberately not folded into `workersSlots`: this shape carries neither the
+ * zone share nor the diurnal weight, and unifying the two would rely on those
+ * factors cancelling in `distribute`. Relying on a cancellation is how seeded
+ * bytes move.
+ */
+function workersAiSlots(
+  profile: AccountProfile,
+  period: BillingPeriod,
+  random: () => number
+): Slot[] {
   const perDay = dayWeights(period, random);
   return periodDates(period).map((date) => {
-    const percent = isElevated(date, 12) ? WORKERS_AI_ELEVATION_PERCENT : 100;
+    const percent = isElevated(profile, date, 12)
+      ? profile.workersAi.elevationPercent
+      : 100;
     return {
       date,
-      zoneId: ACCOUNT.primaryZoneId,
+      zoneId: profile.account.primaryZoneId,
       hour: 12,
       weight: perDay.get(date)! * percent
     };
@@ -145,6 +146,7 @@ function workersAiSlots(period: BillingPeriod, random: () => number): Slot[] {
 }
 
 function buildEvents(
+  accountId: string,
   serviceName: string,
   idPrefix: string,
   unit: string,
@@ -153,7 +155,7 @@ function buildEvents(
 ): UsageEvent[] {
   return slots.map((slot, index) => ({
     eventId: `${idPrefix}-${slot.date}-${slot.zoneId}-${String(slot.hour).padStart(2, "0")}`,
-    accountId: ACCOUNT.accountId,
+    accountId,
     serviceName,
     zoneId: slot.zoneId,
     // Unique per event, so no two events can share a fingerprint. PRD §12.6.
@@ -165,7 +167,7 @@ function buildEvents(
 }
 
 /** Roll events up to one row per service, zone and day, carrying lineage. */
-function aggregateDaily(events: UsageEvent[]): DailyUsage[] {
+function aggregateDaily(accountId: string, events: UsageEvent[]): DailyUsage[] {
   const groups = new Map<string, UsageEvent[]>();
   for (const event of events) {
     const date = event.occurredAt.slice(0, 10);
@@ -182,7 +184,7 @@ function aggregateDaily(events: UsageEvent[]): DailyUsage[] {
       a.occurredAt.localeCompare(b.occurredAt)
     );
     rows.push({
-      accountId: ACCOUNT.accountId,
+      accountId,
       serviceName,
       zoneId,
       usageDate: isoDate(usageDate),
@@ -203,49 +205,60 @@ function aggregateDaily(events: UsageEvent[]): DailyUsage[] {
 }
 
 /**
- * Deterministic: the same seed always produces byte-identical output.
+ * One account's data, from its profile alone.
+ *
+ * Deterministic: the same profile always produces byte-identical output, and
+ * because the PRNG is seeded from the profile rather than shared, generating
+ * several accounts in any order leaves each one's output unchanged.
  * PRD §13.6, §15.3.
  */
-export function generateSyntheticData(seed: number = SEED): BillingDataset {
-  const random = mulberry32(seed);
+export function generateSyntheticData(
+  profile: AccountProfile = GOLDEN_ACCOUNT
+): BillingDataset {
+  const random = mulberry32(profile.seed);
+  const { accountId } = profile.account;
 
   const priceVersions: PriceVersion[] = [
-    { ...WORKERS_PRICE, accountId: ACCOUNT.accountId },
-    { ...WORKERS_AI_PRICE, accountId: ACCOUNT.accountId }
+    { ...profile.workers.price, accountId },
+    { ...profile.workersAi.price, accountId }
   ];
 
   const subscriptions: Subscription[] = [
     {
-      subscriptionId: SUBSCRIPTION_ID,
-      accountId: ACCOUNT.accountId,
-      planName: ACCOUNT.planType,
-      monthlyFeeCents: PLATFORM_FEE_CENTS,
-      startedOn: isoDate("2026-01-01"),
+      subscriptionId: profile.subscriptionId,
+      accountId,
+      planName: profile.account.planType,
+      monthlyFeeCents: profile.platformFeeCents,
+      startedOn: isoDate(profile.subscriptionStartedOn),
       endedOn: null
     }
   ];
 
+  // Draw order is [workers, workersAi] within each period, and both draw from
+  // the same stream. Reordering these calls changes every downstream quantity.
   const usageEvents: UsageEvent[] = [];
-  for (const period of PERIODS) {
-    const wSlots = workersSlots(period, random);
+  for (const period of profile.periods) {
+    const wSlots = workersSlots(profile, period, random);
     usageEvents.push(
       ...buildEvents(
-        SERVICE_WORKERS,
-        "ue-workers",
-        WORKERS_PRICE.unit,
+        accountId,
+        profile.workers.price.serviceName,
+        profile.workers.eventIdPrefix,
+        profile.workers.price.unit,
         wSlots,
-        distribute(WORKERS_QUANTITY[period], wSlots)
+        distribute(profile.workers.quantityByPeriod[period], wSlots)
       )
     );
 
-    const aiSlots = workersAiSlots(period, random);
+    const aiSlots = workersAiSlots(profile, period, random);
     usageEvents.push(
       ...buildEvents(
-        SERVICE_WORKERS_AI,
-        "ue-workersai",
-        WORKERS_AI_PRICE.unit,
+        accountId,
+        profile.workersAi.price.serviceName,
+        profile.workersAi.eventIdPrefix,
+        profile.workersAi.price.unit,
         aiSlots,
-        distribute(WORKERS_AI_QUANTITY[period], aiSlots)
+        distribute(profile.workersAi.quantityByPeriod[period], aiSlots)
       )
     );
   }
@@ -254,21 +267,24 @@ export function generateSyntheticData(seed: number = SEED): BillingDataset {
       a.occurredAt.localeCompare(b.occurredAt) || a.eventId.localeCompare(b.eventId)
   );
 
-  const dailyUsage = aggregateDaily(usageEvents);
+  const dailyUsage = aggregateDaily(accountId, usageEvents);
 
   const fixedLines: FixedLineSource[] = [
     subscriptionFixedLine(subscriptions[0]),
-    { serviceName: "R2", amountCents: R2_CENTS, subscriptionId: null },
-    { serviceName: "D1", amountCents: D1_CENTS, subscriptionId: null }
+    ...profile.unauthorisedFixedLines.map((line) => ({
+      serviceName: line.serviceName,
+      amountCents: line.amountCents,
+      subscriptionId: null
+    }))
   ];
 
   const ratedCharges: RatedCharge[] = [];
   const invoices: Invoice[] = [];
   const invoiceLines: InvoiceLine[] = [];
 
-  for (const period of PERIODS) {
+  for (const period of profile.periods) {
     const charges = generateRatedCharges(
-      ACCOUNT.accountId,
+      accountId,
       period,
       dailyUsage,
       priceVersions
@@ -276,9 +292,9 @@ export function generateSyntheticData(seed: number = SEED): BillingDataset {
     ratedCharges.push(...charges);
 
     const { invoice, lines } = generateInvoice(
-      ACCOUNT.accountId,
+      accountId,
       period,
-      ACCOUNT.currency,
+      profile.account.currency,
       charges,
       fixedLines
     );
@@ -286,48 +302,23 @@ export function generateSyntheticData(seed: number = SEED): BillingDataset {
     invoiceLines.push(...lines);
   }
 
-  const accountEvents: AccountEvent[] = [
-    {
-      eventId: "dep-1790",
-      accountId: ACCOUNT.accountId,
-      eventType: "deployment",
-      name: "api-gateway-v2",
-      zoneId: ACCOUNT.primaryZoneId,
-      occurredAt: "2026-07-02T11:15:00Z",
-      metadata: "synthetic deployment record"
-    },
-    {
-      eventId: DEPLOYMENT_EVENT.eventId,
-      accountId: ACCOUNT.accountId,
-      eventType: "deployment",
-      name: DEPLOYMENT_EVENT.name,
-      zoneId: DEPLOYMENT_EVENT.zoneId,
-      occurredAt: DEPLOYMENT_EVENT.occurredAt,
-      metadata: "synthetic deployment record"
-    },
-    {
-      eventId: "cfg-311",
-      accountId: ACCOUNT.accountId,
-      eventType: "configuration_change",
-      name: "cache-rules-update",
-      zoneId: ACCOUNT.primaryZoneId,
-      occurredAt: "2026-08-14T22:40:00Z",
-      metadata: "synthetic configuration record"
-    }
-  ];
+  const accountEvents: AccountEvent[] = profile.accountEvents.map((event) => ({
+    ...event,
+    accountId
+  }));
 
   return {
-    account: { ...ACCOUNT },
+    account: { ...profile.account },
     zones: [
       {
-        zoneId: ACCOUNT.primaryZoneId,
-        accountId: ACCOUNT.accountId,
-        zoneName: ACCOUNT.primaryZoneName
+        zoneId: profile.account.primaryZoneId,
+        accountId,
+        zoneName: profile.account.primaryZoneName
       },
       {
-        zoneId: SECONDARY_ZONE.zoneId,
-        accountId: ACCOUNT.accountId,
-        zoneName: SECONDARY_ZONE.zoneName
+        zoneId: profile.secondaryZone.zoneId,
+        accountId,
+        zoneName: profile.secondaryZone.zoneName
       }
     ],
     subscriptions,
