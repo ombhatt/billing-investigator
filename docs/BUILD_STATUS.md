@@ -3,10 +3,10 @@
 Tracks execution of `docs/BUILD_PLAN.md`. Update this file as part of every milestone-advancing
 change — a stale status file is a defect.
 
-**Last updated:** 2026-09-11
-**Phase:** All five milestones complete. **P0 closed** — all twenty-one PRD §24
-boxes verified and the §20.5 manual acceptance test passed against the deployed
-URL on 2026-09-11, version `5db38484-a5b0-4d53-8110-a23af3020305`.
+**Last updated:** 2026-09-14
+**Phase:** P0 closed 2026-09-11 (all twenty-one PRD §24 boxes, §20.5 passed against
+the deployed URL). **P1.1 closed 2026-09-14** — Milestones 6–10, the duplicated-usage
+account, live at version `6a8e5c4b`. Four P1 items remain, none planned yet.
 
 **Deployed:** https://billing-investigator.om-bhatt.workers.dev
 

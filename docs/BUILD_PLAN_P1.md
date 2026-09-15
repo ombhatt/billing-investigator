@@ -1,7 +1,7 @@
 # Build Plan — P1.1: the duplicated-usage account
 
 **Derived from:** `docs/PRD.md` §6.2 · **Companion:** `docs/BUILD_PLAN.md` (P0, complete)
-**Status:** Plan only. No implementation has started.
+**Status:** Complete. Milestones 6–10 delivered 2026-09-14; both accounts live. Remaining P1 items are unplanned — see §5 and the scope-gates table in `CLAUDE.md`.
 **Milestone numbering** continues from the P0 plan, which ended at Milestone 5.
 
 ---
