@@ -1694,3 +1694,45 @@ billing data identical after every reset and switch.
 
 568 tests. One flaky failure appeared in a run taken while the dev server was
 still running; three subsequent runs were clean.
+
+### Chasing the flaky test — parked, with the guess disproved
+
+Two full-suite failures, days apart, both on WebSocket state-broadcast tests,
+neither ever reproduced. Asked to chase it.
+
+Built a flake-rate loop and ran 58 suites across six conditions: the two suspect
+specs isolated, the whole integration project, the integration project under
+eight-core CPU saturation, full `npm test`, full `npm test` with `vite dev`
+running, and the full suite while `wrangler d1 execute --local` churned
+`.wrangler/state`. Zero reproductions.
+
+The useful result is a negative one. M8 changed account selection from a JSON
+body to a query parameter because `await request.json()` added a yield point to
+the reset path, and I recorded at the time that this was unproven. It is now
+disproven: the old handler was reconstructed and run fourteen times, full suite
+included, without a failure. **That change fixed nothing.** It is still the right
+design — the reset path should stay synchronous up to its own `setState` — but
+the record should not suggest it resolved anything, so `ARCHITECTURE.md` §32 says
+so plainly.
+
+The one piece of real evidence is the M8 signature, `10 failed | 514 passed |
+9 skipped`. Nine skipped means a `beforeAll` threw, and the only nine-test
+integration file at that commit was `duplicateAccount.spec.ts`, whose `beforeAll`
+seeds two accounts. Ten other tests failed alongside. One file's seeding throwing
+plus scattered failures elsewhere is the shape of D1 state shared across
+concurrently-running test files — thirteen integration files call `seedDataset`,
+which deletes every table before re-inserting — and not the shape of anything in
+the reset path. Untested, because no loop could be built to test it.
+
+Parked on the user's call rather than hardened on suspicion. Pinning
+`isolatedStorage` or making `seedDataset` concurrency-safe would ship a fix for a
+cause never observed, with no test that goes red without it — the exact pattern
+every invariant in `CLAUDE.md` exists to prevent. One guess has already produced
+a change that turned out to fix nothing; a second would be worse, because it
+would look like a resolution.
+
+What would settle it is written down: a long background loop that saves output
+only on failure, and the thrown error from that `beforeAll` decides it in one
+line.
+
+No source changed. Diagnosis harness left in the session scratchpad, not the repo.

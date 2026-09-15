@@ -10,6 +10,18 @@ account, live at version `6a8e5c4b`. Four P1 items remain, none planned yet.
 
 **Deployed:** https://billing-investigator.om-bhatt.workers.dev
 
+## Known issues
+
+| Issue | Status | Detail |
+|---|---|---|
+| Intermittent full-suite failure on WebSocket state-broadcast tests | **open, parked 2026-09-15** | Two occurrences (M8, M10), never reproduced. 58 runs across six conditions caught nothing. The M8 query-parameter change is **not** a fix for it — the pre-change code was reconstructed and run 14 times clean. Untested hypothesis and the one-line test that would settle it: `ARCHITECTURE.md` §32. |
+
+Roughly one failure in sixty-plus runs, and it has never affected a green-gated
+commit. Parked rather than fixed because hardening on suspicion would ship a
+change with no test that goes red without it.
+
+---
+
 **Status values:** `pending` · `in_progress` · `blocked` · `complete`
 
 ---
@@ -448,3 +460,4 @@ deployment commands included in both the README and the final report.
 | 2026-09-14 | P1 Milestone 8 complete. `INVESTIGATION_ACCOUNT_ID` and `FOCUS_SERVICE` are gone from `src/server.ts`. The account is server-owned state, bound once when an investigation opens, and every tool call reads it from the record — never from session state, so a switch cannot redirect a turn in flight. `src/agent/accounts.ts` is the selectable-account allowlist, the same shape as the tool allowlist: a client-supplied name becomes one of ours or is rejected. Selecting an account *is* a reset, which makes "switching starts a new investigation" structural. Denial asserted for all nine tools in both directions plus the live-switch case. Mutation-checked three ways. 550 tests, 5/5 stable runs. |
 | 2026-09-14 | P1 Milestone 9 complete. A full agent turn on `dup-7741` reaches `unresolved` with `invoiceAppearsCorrect: false`, confidence `low` and the blocker `120 duplicate usage group(s) found` — while reconciliation passed and 100% of the variance was explained. Second fact block pinned in `CLAUDE.md` and `test/support/duplicateFacts.ts`. The agent path needed no change: the verdict, the per-service duplicate checks and the blocker were already correct. The deterministic finding did need one — it led with the variance and never named the duplicate, so a reader was told the bill rose and not that it was wrong. Counts only, no new fact field. Mutation-testing found an untested defensive clause in `assessCompletion` (`ranDuplicateCheck`): forcing it true passed the entire suite. Covered by `test/unit/completionDuplicates.spec.ts`. 564 tests, 3/3 stable. |
 | 2026-09-14 | P1 Milestone 10 complete — **P1.1 done**. Account picker in the header; switching is a reset, so an investigation is never re-pointed mid-flight. Suggested prompt, header and invoice list all follow the selection. Driving it live found the last real defect: with the real model running, the narrative guard accepted prose that summarised the variance fluently and never mentioned the duplicates — every figure verified, and the lede said nothing was wrong. Added `omitted_material_finding` to the guard: prose is bounded by evidence, and equally may not drop what the evidence found. Verified live on both accounts. 568 tests. |
+| 2026-09-15 | Chased the intermittent WebSocket state-broadcast failure. 58 runs across six conditions — isolated specs, integration project, CPU saturation, full suite, full suite with `vite dev` running, and full suite with wrangler churning `.wrangler/state` — reproduced nothing. Reconstructing M8's pre-change reset handler and running it 14 times clean **disproves** that the `await request.json()` was the cause, so that change fixed nothing; it remains the better design for its own reasons. Untested hypothesis (D1 state shared across concurrent test files) and the test that would settle it recorded in `ARCHITECTURE.md` §32. Parked: no red-capable loop, so no fix. |

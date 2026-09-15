@@ -1492,3 +1492,79 @@ either, so `maxOutputTokens` is set explicitly on every call — 400 for JSON, 7
 for prose — rather than relying on the provider's 256 default. Tools return
 compact aggregates; full time series reach the UI as structured evidence and
 never enter the prompt.
+
+---
+
+## 32. Addendum: a flake that has not been caught
+
+**Status: open, parked 2026-09-15.** Not fixed, not explained, and deliberately
+not papered over.
+
+### The symptom
+
+Two full-suite runs, days apart, produced failures that no subsequent run has
+reproduced:
+
+| When | Signature |
+|---|---|
+| M8 | `10 failed \| 514 passed \| 9 skipped (533)` |
+| M10 | `1 failed \| 567 passed (568)` |
+
+Both landed on tests involving real WebSocket state broadcast from the Durable
+Object. Neither has recurred.
+
+### What has been ruled out
+
+Fifty-eight runs across six conditions, zero reproductions:
+
+| Condition | Runs |
+|---|---|
+| The two suspect specs, isolated | 10 |
+| Full integration project | 8 |
+| Integration project under 8-core CPU saturation | 5 |
+| Full `npm test` | 10 |
+| Full `npm test` with `vite dev` running | 6 |
+| Reconstructed pre-M8 reset handler (`await request.json()`) | 14 |
+| Full suite while `wrangler d1 execute --local` churned `.wrangler/state` | 5 |
+
+The sixth row is the one that matters. M8 replaced a JSON body with a query
+parameter on the reset path, on the theory that `await request.json()` added a
+yield point between reading the generation and writing it. That change was
+explicitly recorded at the time as unproven. It is now **disproven**: the old
+code has been reconstructed and run fourteen times, including the full suite,
+without a single failure.
+
+The query parameter is still the right design — the reset path should stay
+synchronous up to its own `setState`, as the handler's comment says — but it is
+not a fix for this, and nothing in the repo should imply that it is.
+
+### The untested hypothesis
+
+`9 skipped` means a `beforeAll` threw, and at that commit the only nine-test
+integration file was `duplicateAccount.spec.ts`, whose `beforeAll` is
+`seedDataset(env.DB, golden, duplicate)`. Ten other tests failed alongside it.
+
+One file's seeding throwing, plus scattered failures elsewhere, is the shape of
+**D1 state shared across concurrently-running test files** — not of anything in
+the reset path. Thirteen integration files call `seedDataset`, which `DELETE`s
+every table before re-inserting. If the pool's per-file storage isolation ever
+fails to hold, that is what it would look like.
+
+This has not been tested, because no loop could be built to test it against.
+
+### What would settle it
+
+Capturing a real failure rather than provoking one: a long background loop that
+saves full output only on failure. The thrown error from that `beforeAll` would
+decide it in one line — a `UNIQUE constraint` or `no such table` would confirm
+storage contention and point at pinning `isolatedStorage` in `vitest.config.ts`.
+
+### Why it is parked rather than fixed
+
+Roughly one failure in sixty-plus runs, and it has never affected a green-gated
+commit. Hardening `seedDataset` or pinning storage isolation on suspicion would
+mean shipping a fix for a cause never observed, with no test that goes red
+without it — the exact "present-and-wrong case never checked" pattern every
+invariant in `CLAUDE.md` exists to prevent. A guess already produced one change
+that turned out to fix nothing; a second would be worse, because it would look
+like a resolution.
